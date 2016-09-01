@@ -1,16 +1,8 @@
-"""Data-handling code."""
-import audioop
-import wave
-import numpy as np
+import audioop, wave, numpy as np, tensorflow as tf
 import scipy.io.wavfile as wavfile
-import tensorflow as tf
-
-from magenta.models.wayback.lib.namespace import Namespace as NS
-
+from lib.namespace import Namespace as NS
 
 class Dataset(object):
-  """Dataset consisting of a collection of wav files."""
-
   def __init__(self, paths, frequency, bit_depth):
     """Initialize a Wav instance.
 
@@ -41,9 +33,7 @@ class Dataset(object):
     Returns:
       Isomorphic Namespace tree with waveform examples.
     """
-    return NS.UnflattenLike(paths,
-                            [[self.load_wavfile(path)]
-                             for path in NS.Flatten(paths)])
+    return NS.UnflattenLike(paths, [[self.load_wavfile(path)] for path in NS.Flatten(paths)])
 
   def dump(self, base_path, example):
     """Dump a single example.
@@ -65,11 +55,8 @@ class Dataset(object):
 
     Returns:
       The waveform as a sequence of categorical integers.
-
     """
-    return load_wavfile(path,
-                        bit_depth=self.bit_depth,
-                        frequency=self.frequency)
+    return load_wavfile(path, bit_depth=self.bit_depth, frequency=self.frequency)
 
   def dump_wavfile(self, path, sequence):
     """Dump a single wav file.
@@ -80,10 +67,7 @@ class Dataset(object):
       path: where to dump the wav file.
       sequence: the sequence to dump.
     """
-    dump_wavfile(path, sequence,
-                 frequency=self.frequency,
-                 bit_depth=self.bit_depth)
-
+    dump_wavfile(path, sequence, frequency=self.frequency, bit_depth=self.bit_depth)
 
 def load_wavfile(path, bit_depth, frequency):
   """Load a wav file.
@@ -109,8 +93,7 @@ def load_wavfile(path, bit_depth, frequency):
     x = audioop.tomono(x, wav.getsampwidth(), 0.5, 0.5)
 
   # convert sampling rate
-  x, _ = audioop.ratecv(x, wav.getsampwidth(), 1, wav.getframerate(),
-                        frequency, None)
+  x, _ = audioop.ratecv(x, wav.getsampwidth(), 1, wav.getframerate(), frequency, None)
 
   # convert to numpy array
   dtype = {1: np.uint8, 2: np.int16, 4: np.int32}[wav.getsampwidth()]
@@ -129,7 +112,6 @@ def load_wavfile(path, bit_depth, frequency):
   x = x.round().astype(np.int32)
 
   return x
-
 
 def dump_wavfile(path, x, bit_depth, frequency):
   """Dump a wav file.
@@ -150,4 +132,3 @@ def dump_wavfile(path, x, bit_depth, frequency):
 
   with tf.gfile.Open(path, "w") as outfile:
     wavfile.write(outfile, frequency, x)
-

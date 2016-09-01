@@ -1,11 +1,8 @@
 from collections import OrderedDict
 import unittest
-
-from magenta.models.wayback.lib.namespace import Namespace as NS
-
+from lib.namespace import Namespace as NS
 
 class NamespaceTest(unittest.TestCase):
-
   def setUp(self):
     pass
 
@@ -18,20 +15,14 @@ class NamespaceTest(unittest.TestCase):
     self.assertEqual(list(ns), ["w", "x", "y"])
     self.assertEqual(list(ns.Keys()), ["w", "x", "y"])
     self.assertEqual(list(ns.Values()), [0, 1, NS(z=2)])
-    self.assertEqual(list(ns.Items()),
-                     [("w", 0), ("x", 1), ("y", NS(z=2))])
-    self.assertEqual(
-        ns.AsDict(),
-        OrderedDict([("w", 0), ("x", 1), ("y", NS(z=2))]))
+    self.assertEqual(list(ns.Items()), [("w", 0), ("x", 1), ("y", NS(z=2))])
+    self.assertEqual(ns.AsDict(), OrderedDict([("w", 0), ("x", 1), ("y", NS(z=2))]))
     ns.Update(ns.y)
     self.assertEqual(list(ns), ["w", "x", "y", "z"])
     self.assertEqual(list(ns.Keys()), ["w", "x", "y", "z"])
     self.assertEqual(list(ns.Values()), [0, 1, NS(z=2), 2])
-    self.assertEqual(list(ns.Items()),
-                     [("w", 0), ("x", 1), ("y", NS(z=2)), ("z", 2)])
-    self.assertEqual(
-        ns.AsDict(),
-        OrderedDict([("w", 0), ("x", 1), ("y", NS(z=2)), ("z", 2)]))
+    self.assertEqual(list(ns.Items()), [("w", 0), ("x", 1), ("y", NS(z=2)), ("z", 2)])
+    self.assertEqual(ns.AsDict(), OrderedDict([("w", 0), ("x", 1), ("y", NS(z=2)), ("z", 2)]))
 
   def testExtract(self):
     ns = NS(v=2, w=NS(x=1, y=NS(z=0))).Extract("w.y v")

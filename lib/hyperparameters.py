@@ -1,10 +1,5 @@
-"""Hyperparameter management."""
-import ast
-import tensorflow as tf
-import yaml
-
-from magenta.models.wayback.lib.namespace import Namespace as NS
-
+import ast, yaml, tensorflow as tf
+from lib.namespace import Namespace as NS
 
 schema = NS(
     (name, NS(name=name, description=description, default=default))
@@ -14,15 +9,13 @@ schema = NS(
         data_dim=("data dimensionality (usually inferred)", 256),
 
         initial_learning_rate=("initial learning rate", 0.002),
-        decay_patience=("how long to wait for improvement before decaying the"
-                        " learning rate", 100),
+        decay_patience=("how long to wait for improvement before decaying the learning rate", 100),
         decay_rate=("rate of decay of learning rate", 0.1),
         clip_norm=("ratio for gradient clipping_by_norm", 1),
 
         batch_size=("number of examples in minibatch", 100),
         use_bn=("whether to use batch normalizatin", False),
-        activation=("recurrent activation function to use (tanh/elu/identity)",
-                    "tanh"),
+        activation=("recurrent activation function to use (tanh/elu/identity)", "tanh"),
         io_sizes=("layer sizes for input and output MLPs", [512]),
         weight_decay=("L2 weight decay coefficient", 1e-7),
 
@@ -30,18 +23,13 @@ schema = NS(
         chunk_size=("number of samples per model step", 1),
         layout=("recurrent connection pattern (stack/wayback)", "stack"),
         cell=("recurrent cell (rnn/lstm/gru)", "lstm"),
-        periods=("update interval for each layer, from bottom to top. only"
-                 " used for the wayback layout", [1000]),
-        layer_sizes=("number of hidden units in each layer, from bottom to"
-                     " top.", [1000]),
+        periods=("update interval for each layer, from bottom to top. only used for the wayback layout", [1000]),
+        layer_sizes=("number of hidden units in each layer, from bottom to top.", [1000]),
         vskip=("vertical skip connections between all layers", False),
 
-        unroll_layer_count=("number of upper layers to move outside the while"
-                            " loop. only used for the wayback layout", 0),
-        carry=("whether to carry state between cycles or restart based on"
-               " context. only used for the wayback layout", True)
+        unroll_layer_count=("number of upper layers to move outside the while loop. only used for the wayback layout", 0),
+        carry=("whether to carry state between cycles or restart based on context. only used for the wayback layout", True)
     ).items())
-
 
 def get_defaults(**overrides):
   """Get default hyperparameters.
@@ -56,21 +44,17 @@ def get_defaults(**overrides):
   Returns:
     A Namespace with (possibly overridden) defaults.
   """
-  hp = NS((name, hyperparameter.default)
-          for name, hyperparameter in schema.Items())
+  hp = NS((name, hyperparameter.default) for name, hyperparameter in schema.Items())
   for name, value in overrides.items():
     if name not in hp:
-      raise ValueError("value provided for nonexistent hyperparameter %s"
-                       % name)
+      raise ValueError("value provided for nonexistent hyperparameter %s" % name)
     # TODO(cotim): deep typecheck
     if type(value) is not type(hp[name]):
       raise ValueError("value %s (%s) provided for hyperparameter %s does not"
                        " match type of default %s (%s)"
-                       % (value, type(value), name,
-                          hp[name], type(hp[name])))
+                       % (value, type(value), name, hp[name], type(hp[name])))
     hp[name] = value
   return hp
-
 
 def parse(string):
   """Parse a hyperparameter string, filling in defaults.
@@ -90,10 +74,8 @@ def parse(string):
   """
   return get_defaults(**parse_value(string).AsDict())
 
-
 class ParseError(Exception):
   pass
-
 
 def parse_value(expr):
   """Parse a hyperparameter value.
@@ -159,7 +141,6 @@ def parse_key(expr):
   else:
     raise ParseError("invalid key", expr)
 
-
 def dump(filelike, hp):
   """Dump hyperparameters to a YAML file.
 
@@ -170,7 +151,6 @@ def dump(filelike, hp):
   if not isinstance(filelike, file):
     filelike = tf.gfile.Open(filelike, "w")
   filelike.write(yaml.dump(hp.AsDict()))
-
 
 def load(filelike):
   """Load hyperparameters from a file.

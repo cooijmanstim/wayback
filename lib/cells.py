@@ -1,28 +1,18 @@
-"""Recurrent transitions in Tensorflow.
-"""
-import numpy as np
-import tensorflow as tf
-
-import magenta.models.wayback.lib.tfutil as tfutil
-
+import numpy as np, tensorflow as tf
+import lib.tfutil as tfutil
 
 class BaseCell(tf.nn.rnn_cell.RNNCell):
   """RNNCell-compatible cell base class.
 
-  Instances of this class can be used wherever RNNCell objects can be used.
-
   NOTE: this base class requires that all subclasses represent state as a
   sequence of Tensors.
   """
-
   @property
   def state_placeholders(self):
-    return [tf.placeholder(dtype=tf.float32, shape=[None, size])
-            for size in self.state_size]
+    return [tf.placeholder(dtype=tf.float32, shape=[None, size]) for size in self.state_size]
 
   def initial_state(self, batch_size):
-    return [np.zeros([batch_size, size])
-            for size in self.state_size]
+    return [np.zeros([batch_size, size]) for size in self.state_size]
 
   def __call__(self, inputs, state, scope=None):
     if not isinstance(inputs, (list, tuple)):
@@ -55,12 +45,8 @@ class BaseCell(tf.nn.rnn_cell.RNNCell):
     """
     raise NotImplementedError()
 
-
 class LSTM(BaseCell):
-  """Long Short-Term Memory recurrent transition."""
-
-  def __init__(self, num_units, forget_bias=1.0,
-               activation=tf.nn.tanh, use_bn=False, scope=None):
+  def __init__(self, num_units, forget_bias=1.0, activation=tf.nn.tanh, use_bn=False, scope=None):
     """Initialize an LSTM object.
 
     Args:
@@ -90,27 +76,21 @@ class LSTM(BaseCell):
   def transition(self, inputs, state, scope=None):
     with tf.variable_scope(scope or self.scope):
       c, h = state
-      total_input = tfutil.project_terms(
-          [h] + inputs, output_dim=4 * self.num_units,
-          use_bn=self.use_bn, scope="ijfo")
+      total_input = tfutil.project_terms([h] + inputs,
+                                         output_dim=4 * self.num_units,
+                                         use_bn=self.use_bn, scope="ijfo")
       i, j, f, o = tf.split(1, 4, total_input)
       f += self.forget_bias
 
-      new_c = (tf.nn.sigmoid(f) * c +
-               tf.nn.sigmoid(i) * self.activation(j))
+      new_c = tf.nn.sigmoid(f) * c + tf.nn.sigmoid(i) * self.activation(j)
       output_c = new_c
       if self.use_bn:
         output_c = tfutil.batch_normalize(output_c, scope="c")
       new_h = tf.nn.sigmoid(o) * self.activation(output_c)
     return new_c, new_h
 
-
 class GRU(BaseCell):
-  """Gated Recurrent Unit recurrent transition."""
-
-  def __init__(self, num_units, forget_bias=1,
-               activation=tf.nn.tanh, use_bn=False,
-               scope=None):
+  def __init__(self, num_units, forget_bias=1, activation=tf.nn.tanh, use_bn=False, scope=None):
     """Initialize a GRU object.
 
     Args:
@@ -140,25 +120,20 @@ class GRU(BaseCell):
   def transition(self, inputs, state, scope=None):
     with tf.variable_scope(scope or self.scope):
       h, = state
-      r = tfutil.project_terms([h] + inputs, output_dim=self.num_units,
+      r = tfutil.project_terms([h] + inputs,
+                               output_dim=self.num_units,
                                use_bn=self.use_bn, scope="r")
       rh = tf.nn.sigmoid(r - self.forget_bias) * h
-      g, z = tf.split(1, 2, tfutil.project_terms(
-          [rh] + inputs,
-          output_dim=2 * self.num_units,
-          use_bn=self.use_bn, scope="gz"))
-      new_h = ((1 - tf.nn.sigmoid(z)) * h +
-               tf.nn.sigmoid(z) * self.activation(g))
+      g, z = tf.split(1, 2, tfutil.project_terms([rh] + inputs,
+                                                 output_dim=2 * self.num_units,
+                                                 use_bn=self.use_bn, scope="gz"))
+      new_h = ((1 - tf.nn.sigmoid(z)) * h + tf.nn.sigmoid(z) * self.activation(g))
       if self.use_bn:
         new_h = tfutil.batch_normalize(new_h, scope="h")
     return [new_h]
 
-
 class RNN(BaseCell):
-  """Simple recurrent transition."""
-
-  def __init__(self, num_units, activation=tf.nn.tanh, use_bn=False,
-               scope=None):
+  def __init__(self, num_units, activation=tf.nn.tanh, use_bn=False, scope=None):
     """Initialize an RNN object.
 
     Args:
@@ -186,7 +161,8 @@ class RNN(BaseCell):
   def transition(self, inputs, state, scope=None):
     with tf.variable_scope(scope or self.scope):
       h, = state
-      g = tfutil.project_terms([h] + inputs, output_dim=self.num_units,
+      g = tfutil.project_terms([h] + inputs,
+                               output_dim=self.num_units,
                                use_bn=self.use_bn)
       new_h = self.activation(g)
     return [new_h]

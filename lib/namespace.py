@@ -1,7 +1,5 @@
-"""Utilities for dealing with collections of variables."""
 from collections import OrderedDict as odict
 import itertools as it
-
 
 class Namespace(object):
   """A class for key-value pairs with less noisy syntax than dicts.
@@ -16,9 +14,7 @@ class Namespace(object):
   interfaces that require you to do that, and `UnflattenLike` allows you to
   restore the structure on the other end.
   """
-
   def __init__(self, *args, **kwargs):
-    # pylint: disable=invalid-name
     self.Data = odict(*args, **kwargs)
 
   def __getitem__(self, *args, **kwargs):
@@ -93,11 +89,8 @@ class Namespace(object):
     Args:
       other: Namespace or dict-like
     """
-    if isinstance(other, Namespace):
-      # python has a stinky manner of detecting dict-likes
-      self.Data.update(other.AsDict())
-    else:
-      self.Data.update(other)
+    # python has a stinky manner of detecting dict-likes
+    self.Data.update(other.AsDict() if isinstance(other, Namespace) else other)
 
   def Extract(self, *keyss):
     """Extract a subnamespace from `self` with the given keys.
@@ -187,8 +180,7 @@ class Namespace(object):
     if isinstance(x, (tuple, list)):
       return list(it.chain.from_iterable(map(Namespace.Flatten, x)))
     elif isinstance(x, Namespace):
-      return list(it.chain.from_iterable(Namespace.Flatten(x[key])
-                                         for key in x))
+      return list(it.chain.from_iterable(Namespace.Flatten(x[key]) for key in x))
     else:
       return [x]
 
@@ -210,7 +202,7 @@ class Namespace(object):
     Returns:
       A Namespace tree structured like `xform` with values from `yflat`.
     """
-    def _UnflattenLike(xform, yflat):  # pylint: disable=missing-docstring
+    def _UnflattenLike(xform, yflat):
       if isinstance(xform, (tuple, list)):
         yform = []
         for xelt in xform:
@@ -308,8 +300,7 @@ class Namespace(object):
       True if the trees are isomorphic, False otherwise.
     """
     deepkey_lists = [sorted(Namespace.DeepKeys(tree)) for tree in trees]
-    if any(len(deepkey_list) != len(deepkey_lists[0])
-           for deepkey_list in deepkey_lists):
+    if any(len(deepkey_list) != len(deepkey_lists[0]) for deepkey_list in deepkey_lists):
       return False
     for parallel_deepkeys in zip(*deepkey_lists):
       if any(deepkey != parallel_deepkeys[0] for deepkey in parallel_deepkeys):

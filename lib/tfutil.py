@@ -1,40 +1,13 @@
-"""Tensorflow utility functions."""
-import math
-import tensorflow as tf
-
-from magenta.models.wayback.lib.namespace import Namespace as NS
-
+import math, tensorflow as tf
+from lib.namespace import Namespace as NS
 
 def shaped_one_hot(indices, shape, **one_hot_kwargs):
-  """Like `tf.one_hot`, but set shape information.
-
-  Args:
-    indices: see `tf.one_hot`.
-    shape: constant shape sequence used to infer the `depth` argument to
-           `tf.one_hot` and used to set shape using `set_shape`.
-    **one_hot_kwargs: passed onto `tf.one_hot`.
-
-  Returns:
-    The same thing as `tf.one_hot`, but with shape information.
-  """
   vectors = tf.one_hot(indices, depth=shape[-1], **one_hot_kwargs)
   vectors.set_shape(shape)
   return vectors
 
-
 def meanlogabs(x, reduction_indices=None):
-  """Compute the average log-magnitude of values in a `Tensor`.
-
-  Args:
-    x: a `Tensor`.
-    reduction_indices: passed on to `tf.reduce_mean`.
-
-  Returns:
-    mean(log(1 + abs(x)))
-  """
-  return tf.reduce_mean(tf.log(1 + tf.abs(x)),
-                        reduction_indices=reduction_indices)
-
+  return tf.reduce_mean(tf.log(1 + tf.abs(x)), reduction_indices=reduction_indices)
 
 def layers(xs, sizes, scope=None, **layer_kwargs):
   """Sequence of nonlinear layers.
@@ -55,7 +28,6 @@ def layers(xs, sizes, scope=None, **layer_kwargs):
         xs = [layer(xs, output_dim=size, **layer_kwargs)]
     return xs[0]
 
-
 def layer(xs, fn=tf.nn.elu, use_bn=True, use_bias=True, **project_terms_kwargs):
   """Linear projection followed by an activation function.
 
@@ -73,7 +45,6 @@ def layer(xs, fn=tf.nn.elu, use_bn=True, use_bias=True, **project_terms_kwargs):
   project_terms_kwargs.setdefault("use_bias", use_bias)
   return fn(project_terms(xs, **project_terms_kwargs))
 
-
 def project_terms(xs, output_dim=None, use_bn=False, use_bias=True, scope=None):
   """Linearly project multiple terms and sum their projections.
 
@@ -90,21 +61,17 @@ def project_terms(xs, output_dim=None, use_bn=False, use_bias=True, scope=None):
   with tf.variable_op_scope([xs], scope or "project_terms"):
     if use_bn:
       # batch-normalize each projection separately before summing
-      projected_xs = [
-          project(x, output_dim=output_dim, use_bias=False, scope=str(i))
-          for i, x in enumerate(xs)]
-      normalized_xs = [
-          batch_normalize(x, beta=0, scope=str(i))
-          for i, x in enumerate(projected_xs)]
+      projected_xs = [project(x, output_dim=output_dim, use_bias=False, scope=str(i))
+                      for i, x in enumerate(xs)]
+      normalized_xs = [batch_normalize(x, beta=0, scope=str(i))
+                       for i, x in enumerate(projected_xs)]
       y = sum(normalized_xs)
     else:
       # concatenate terms and do one big projection
       y = project(tf.concat(1, xs), output_dim=output_dim, use_bias=False)
     if use_bias:
-      y += tf.get_variable("beta", shape=[output_dim],
-                           initializer=tf.constant_initializer(0))
+      y += tf.get_variable("beta", shape=[output_dim], initializer=tf.constant_initializer(0))
     return y
-
 
 def project(x, output_dim=None, use_bias=True, scope=None):
   """Linearly project `x`.
@@ -120,16 +87,12 @@ def project(x, output_dim=None, use_bias=True, scope=None):
   """
   with tf.variable_op_scope([x], scope or "project"):
     input_dim = x.shape[-1]
-    w = tf.get_variable("w", shape=[input_dim, output_dim],
-                        initializer=tf.truncated_normal_initializer(
-                            stddev=math.sqrt(1. / output_dim)),
-                        regularizer=lambda w: w)
+    w = tf.get_variable("w", shape=[input_dim, output_dim], regularizer=lambda w: w,
+                        initializer=tf.truncated_normal_initializer(stddev=math.sqrt(1. / output_dim)))
     y = tf.matmul(x, w)
     if use_bias:
-      y += tf.get_variable("beta", shape=[output_dim],
-                           initializer=tf.constant_initializer(0))
+      y += tf.get_variable("beta", shape=[output_dim], initializer=tf.constant_initializer(0))
     return y
-
 
 def batch_normalize(x, beta=None, gamma=None, epsilon=1e-5, scope=None):
   """Batch-normalize `x`.
@@ -150,15 +113,11 @@ def batch_normalize(x, beta=None, gamma=None, epsilon=1e-5, scope=None):
   with tf.variable_op_scope([x, beta, gamma], scope or "bn"):
     mean, variance = tf.nn.moments(x, [0])
     if gamma is None:
-      gamma = tf.get_variable("gamma", shape=x.shape[-1],
-                              initializer=tf.constant_initializer(0.1))
+      gamma = tf.get_variable("gamma", shape=x.shape[-1], initializer=tf.constant_initializer(0.1))
     if beta is None:
-      beta = tf.get_variable("beta", shape=x.shape[-1],
-                             initializer=tf.constant_initializer(0))
+      beta = tf.get_variable("beta", shape=x.shape[-1], initializer=tf.constant_initializer(0))
     return tf.nn.batch_normalization(x, mean, variance, beta, gamma, epsilon)
 
-
-# pylint: disable=redefined-outer-name
 def while_loop(cond, body, loop_vars, **kwargs):
   """Like `tf.while_loop` but with structured `loop_vars`.
 
@@ -179,13 +138,10 @@ def while_loop(cond, body, loop_vars, **kwargs):
   def _body(*flat_vars):
     return NS.Flatten(body(NS.UnflattenLike(loop_vars, flat_vars)))
 
-  return NS.UnflattenLike(
-      loop_vars,
-      tf.while_loop(cond=_cond, body=_body,
-                    loop_vars=NS.Flatten(loop_vars),
-                    **kwargs))
-# pylint: enable=redefined-outer-name
-
+  return NS.UnflattenLike(loop_vars,
+                          tf.while_loop(cond=_cond, body=_body,
+                                        loop_vars=NS.Flatten(loop_vars),
+                                        **kwargs))
 
 def cond(pred, fn1, fn2, prototype, **kwargs):
   """Like `tf.cond` but with structured collections of variables.
@@ -219,30 +175,10 @@ def cond(pred, fn1, fn2, prototype, **kwargs):
   tree3 = NS.UnflattenLike(prototype, results)
   return tree3
 
-
 def leaky_relu(x, alpha=1e-2):
-  """Compute the Leaky ReLU activation function.
-
-  Args:
-    x: preactivation
-    alpha: slope at x < 0
-
-  Returns:
-    The activation value.
-  """
   return tf.maximum(alpha * x, x)
 
-
 def sample(logits, temperature=1.0):
-  """Sample from softmax distribution over targets.
-
-  Args:
-    logits: Possibly unnormalized softmax energies to sample from.
-    temperature: Softmax temperature; higher is more random.
-
-  Returns:
-    Sample, as an integer index.
-  """
   if temperature != 1:
     logits /= temperature
   index = tf.to_int32(tf.multinomial(logits, 1)[:, 0])

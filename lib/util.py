@@ -1,34 +1,15 @@
-"""Utility functions.
-"""
-import collections
-import numpy as np
-import logging
-
+import collections, logging, numpy as np
 
 def odict(*args, **kwargs):
   return collections.OrderedDict(*args, **kwargs)
 
-
 def constantly(x):
   return lambda: x
-
 
 def noop(*unused_args, **unused_kwargs):
   pass
 
-
 def equizip(*iterables):
-  """Like `zip` but require that iterables have equal length.
-
-  Args:
-    *iterables: The iterables to zip
-
-  Raises:
-    ValueError: If the sequences differ in length.
-
-  Yields:
-    Tuples like `zip`.
-  """
   iterators = list(map(iter, iterables))
   for elements in zip(*iterators):
     yield elements
@@ -40,7 +21,6 @@ def equizip(*iterables):
       pass
     else:
       raise ValueError("Sequences must have equal length")
-
 
 def augment_by_random_translations(features, num_examples=1):
   """Augment a sequence data point by random circular shifts.
@@ -67,7 +47,6 @@ def augment_by_random_translations(features, num_examples=1):
               for offset in offsets]
   return examples
 
-
 def augment_by_slicing(features, num_examples):
   """Augment a sequence data point by slicing it into disjoint examples.
 
@@ -91,13 +70,10 @@ def augment_by_slicing(features, num_examples):
   new_length = num_examples * slice_length
 
   if new_length < length:
-    logging.warning("losing %d elements to augment_by_slicing",
-                    length - new_length)
+    logging.warning("losing %d elements to augment_by_slicing", length - new_length)
 
-  return list(zip(*[
-      feature[:new_length].reshape((num_examples, slice_length))
-      for feature in features]))
-
+  return list(zip(*[feature[:new_length].reshape((num_examples, slice_length))
+                    for feature in features]))
 
 def batches(examples, batch_size, augment=True):
   """Generate randomly chosen batches of examples.
@@ -131,8 +107,7 @@ def batches(examples, batch_size, augment=True):
     k = int(np.ceil(batch_size / float(len(examples))))
     examples = [derivation
                 for example in examples
-                for derivation in augment_by_random_translations(
-                    example, num_examples=k)]
+                for derivation in augment_by_random_translations(example, num_examples=k)]
 
   np.random.shuffle(examples)
   for i in range(0, len(examples), batch_size):
@@ -141,7 +116,6 @@ def batches(examples, batch_size, augment=True):
       logging.warning("dropping ragged batch of %d examples", len(batch))
       break
     yield batch
-
 
 def segments(examples, segment_length, overlap=0, truncate=True):
   """Generate segments from batched sequence data for TBPTT.
@@ -197,7 +171,6 @@ def segments(examples, segment_length, overlap=0, truncate=True):
                for features in examples]
     yield segment
 
-
 def pad(xs):
   """Zero-pad a list of variable-length numpy arrays.
 
@@ -209,28 +182,17 @@ def pad(xs):
   Returns:
     The resulting array.
   """
-  y = np.zeros((len(xs), max(map(len, xs))) + xs[0].shape[1:],
-               dtype=xs[0].dtype)
+  y = np.zeros((len(xs), max(map(len, xs))) + xs[0].shape[1:], dtype=xs[0].dtype)
   for i, x in enumerate(xs):
     y[i, :len(x)] = x
   return y
 
-
 class MeanAggregate(object):
-  """Convenience class for cumulative averaging."""
-
   def __init__(self):
-    """Initialize the average.
-    """
     self.n = 0
     self.v = 0.
 
   def add(self, x):
-    """Update the average.
-
-    Args:
-      x: the new data point to take into account.
-    """
     self.v = (self.n * self.v + x) / (self.n + 1)
     self.n += 1
 

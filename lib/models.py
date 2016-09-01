@@ -1,37 +1,23 @@
-"""Teacher-forcing sequence models."""
-import functools as ft
-import numpy as np
-import tensorflow as tf
+import functools as ft, numpy as np, tensorflow as tf
 
-import magenta.models.wayback.lib.cells as cells
-from magenta.models.wayback.lib.namespace import Namespace as NS
-import magenta.models.wayback.lib.tfutil as tfutil
-import magenta.models.wayback.lib.util as util
-
+import lib.cells as cells
+from lib.namespace import Namespace as NS
+import lib.tfutil as tfutil
+import lib.util as util
 
 def construct(hp):
-  """Construct a model according to given hyperparameters.
-
-  Args:
-    hp: model hyperparameters.
-
-  Returns:
-    An instance of `BaseModel`.
-  """
   activation = dict(tanh=tf.nn.tanh,
                     identity=lambda x: x,
                     elu=tf.nn.elu)[hp.activation]
   cell_implementation = dict(lstm=cells.LSTM,
                              gru=cells.GRU,
                              rnn=cells.RNN)[hp.cell]
-  cells_ = [cell_implementation(layer_size, use_bn=hp.use_bn,
-                                activation=activation, scope="cell%i" % i)
+  cells_ = [cell_implementation(layer_size, use_bn=hp.use_bn, activation=activation, scope="cell%i" % i)
             for i, layer_size in enumerate(hp.layer_sizes)]
   model_implementation = dict(stack=Stack, wayback=Wayback)[hp.layout]
   model = model_implementation(cells_=cells_, hp=hp)
   assert hp.segment_length >= model.period
   return model
-
 
 class BaseModel(object):
   """Base class for sequence models.
@@ -42,11 +28,6 @@ class BaseModel(object):
   """
 
   def __init__(self, hp):
-    """Initialize a BaseModel instance.
-
-    Args:
-      hp: model hyperparameters.
-    """
     self.hp = hp
 
   @property
@@ -59,7 +40,6 @@ class BaseModel(object):
 
     Returns:
       The model's period.
-
     """
     return 1
 
@@ -118,7 +98,6 @@ class BaseModel(object):
     """
     raise NotImplementedError()
 
-  # pylint: disable=g-doc-return-or-yield,g-doc-args
   def _make_sequence_graph(self, **kwargs):
     """See the module-level `_make_sequence_graph`."""
     if kwargs.get("model_state", None) is None:
@@ -128,10 +107,8 @@ class BaseModel(object):
       h = self.get_output(state)
       return h, state
     return _make_sequence_graph(transition=transition, **kwargs)
-  # pylint: enable=g-doc-return-or-yield,g-doc-args
 
-  def make_training_graph(self, x, length=None, context=None,
-                          model_state=None):
+  def make_training_graph(self, x, length=None, context=None, model_state=None):
     """Make a graph to train the model by teacher-forcing.
 
     `x` is processed in chunks of size determined by the hyperparameter
@@ -181,8 +158,7 @@ class BaseModel(object):
     return self._make_sequence_graph(x=x, model_state=model_state,
                                      length=length, context=context, hp=self.hp)
 
-  def make_sampling_graph(self, initial_xchunk, length, context=None,
-                          model_state=None, temperature=1.0):
+  def make_sampling_graph(self, initial_xchunk, length, context=None, model_state=None, temperature=1.0):
     """Make a graph to sample from the model.
 
     The graph generates a sequence `xhat` in chunks of size determined by the
@@ -206,11 +182,7 @@ class BaseModel(object):
                                      context=context, temperature=temperature,
                                      hp=self.hp)
 
-
 class Stack(BaseModel):
-  """A model that consists of a stack of cells.
-  """
-
   def __init__(self, cells_, hp):
     """Initialize a `Stack` instance.
 
@@ -220,8 +192,7 @@ class Stack(BaseModel):
     """
     super(Stack, self).__init__(hp)
     self.cells = list(cells_)
-    self._state_placeholders = NS(
-        cells=[cell.state_placeholders for cell in self.cells])
+    self._state_placeholders = NS(cells=[cell.state_placeholders for cell in self.cells])
 
   def initial_state(self, batch_size):
     return NS(cells=[cell.initial_state(batch_size) for cell in self.cells])
@@ -245,18 +216,10 @@ class Stack(BaseModel):
         # feed in state of layer below
         if i > 0:
           cell_inputs.append(self.cells[i - 1].get_output(state.cells[i - 1]))
-      state.cells[i] = self.cells[i].transition(cell_inputs, state.cells[i],
-                                                scope="cell%i" % i)
+      state.cells[i] = self.cells[i].transition(cell_inputs, state.cells[i], scope="cell%i" % i)
     return state
 
-
 class Wayback(BaseModel):
-  """The Wayback machine.
-
-  Essentially a stack of cells, with upper layers moving more slowly than
-  lower ones.
-  """
-
   def __init__(self, cells_, hp):
     """Initialize a `Wayback` instance.
 
@@ -291,17 +254,15 @@ class Wayback(BaseModel):
     self.inner_slice = slice(cutoff)
     self.outer_slice = slice(cutoff, len(cells_))
 
-    self._state_placeholders = NS(
-        time=tf.placeholder(dtype=tf.int32, name="time"),
-        cells=[cell.state_placeholders for cell in self.cells])
+    self._state_placeholders = NS(time=tf.placeholder(dtype=tf.int32, name="time"),
+                                  cells=[cell.state_placeholders for cell in self.cells])
 
   @property
   def period(self):
     return int(np.prod(self.hp.periods))
 
   def initial_state(self, batch_size):
-    return NS(time=0,
-              cells=[cell.initial_state(batch_size) for cell in self.cells])
+    return NS(time=0, cells=[cell.initial_state(batch_size) for cell in self.cells])
 
   def get_output(self, state):
     return self.cells[0].get_output(state.cells[0])
@@ -381,23 +342,18 @@ class Wayback(BaseModel):
       # a closure with a loop variable.
 
       cell_state = cell_states[i]
-      carry_context = (above if is_top else
-                       cells_[i + 1].get_output(cell_states[i + 1]))
+      carry_context = above if is_top else cells_[i + 1].get_output(cell_states[i + 1])
       if not hp.carry and carry_context is not None:
         # start every cycle with a new initial state determined from state above
         def _reinit_cell(cell, context, scope):
-          return [tfutil.layer([context], output_dim=size, use_bn=hp.use_bn,
-                               scope="%s_%i" % (scope, j))
+          return [tfutil.layer([context], output_dim=size, use_bn=hp.use_bn, scope="%s_%i" % (scope, j))
                   for j, size in enumerate(cell.state_size)]
-        reinit_cell = ft.partial(_reinit_cell, cell=cells_[i],
-                                 context=carry_context, scope="reinit_%i" % i)
+        reinit_cell = ft.partial(_reinit_cell, cell=cells_[i], context=carry_context, scope="reinit_%i" % i)
         preserve_cell = util.constantly(cell_state)
 
         # reinitialize cell[i] if cell above was just updated
         if symbolic:
-          cell_state = tfutil.cond(_is_due(i + 1),
-                                   reinit_cell, preserve_cell,
-                                   prototype=cell_state)
+          cell_state = tfutil.cond(_is_due(i + 1), reinit_cell, preserve_cell, prototype=cell_state)
         else:
           if _is_due(i + 1):
             cell_state = reinit_cell()
@@ -410,8 +366,7 @@ class Wayback(BaseModel):
           # skip the cond; bottom layer updates each step
           cell_states[i] = update_cell()
         else:
-          cell_states[i] = tfutil.cond(_is_due(i), update_cell, preserve_cell,
-                                       prototype=cell_state)
+          cell_states[i] = tfutil.cond(_is_due(i), update_cell, preserve_cell, prototype=cell_state)
       else:
         if _is_due(i):
           cell_states[i] = update_cell()
@@ -485,24 +440,18 @@ class Wayback(BaseModel):
       Namespace containing relevant symbolic variables.
     """
     if length is None or not isinstance(length, int):
-      raise ValueError("For partial unrolling, length must be known at graph"
-                       " construction time.")
+      raise ValueError("For partial unrolling, length must be known at graph construction time.")
 
     if model_state is None:
       model_state = self.state_placeholders()
 
-    state = NS(model=model_state, inner_initial_xchunk=initial_xchunk,
-               xhats=[], losses=[], errors=[])
+    state = NS(model=model_state, inner_initial_xchunk=initial_xchunk, xhats=[], losses=[], errors=[])
 
     # i suspect ugly gradient biases may occur if gradients are truncated
     # somewhere halfway through the cycle. ensure we start at a cycle boundary.
     chunk_size = hp.chunk_size
-    outer_alignment_assertion = tf.Assert(
-        tf.equal(state.model.time, 0),
-        [state.model.time],
-        name="outer_alignment_assertion")
-    state.model.time = tf.with_dependencies(
-        [outer_alignment_assertion], state.model.time)
+    outer_alignment_assertion = tf.Assert(tf.equal(state.model.time, 0), [state.model.time], name="outer_alignment_assertion")
+    state.model.time = tf.with_dependencies([outer_alignment_assertion], state.model.time)
     # ensure we end at a cycle boundary too.
     assert (length - chunk_size) % (self.period * chunk_size) == 0
 
@@ -537,7 +486,6 @@ class Wayback(BaseModel):
       # `back_prop=False`.
       outer_cell_states = NS.Copy(state.model.cells[self.outer_slice])
 
-      # pylint: disable=missing-docstring
       def _inner_transition(input_, state, context=None):
         assert not context
         state.cells = Wayback.transition(
@@ -547,7 +495,6 @@ class Wayback(BaseModel):
         state.time %= self.period
         h = self.get_output(state)
         return h, state
-      # pylint: enable=missing-docstring
 
       inner_ts = _make_sequence_graph(
           transition=_inner_transition, model_state=state.model,
@@ -557,8 +504,7 @@ class Wayback(BaseModel):
           back_prop=back_prop and is_last_iteration)
 
       state.model = inner_ts.final_state.model
-      state.inner_initial_xchunk = (inner_ts.final_xchunk if x is not None
-                                    else inner_ts.final_xhatchunk)
+      state.inner_initial_xchunk = inner_ts.final_xchunk if x is not None else inner_ts.final_xhatchunk
       state.final_xhatchunk = inner_ts.final_xhatchunk
       if x is not None:
         state.final_xchunk = inner_ts.final_xchunk
@@ -567,12 +513,8 @@ class Wayback(BaseModel):
       state.xhats.append(inner_ts.xhat)
 
       # double check alignment to be safe
-      inner_alignment_assertion = tf.Assert(
-          tf.equal(state.model.time % inner_period, 0),
-          [state.model.time, tf.shape(inner_x)],
-          name="inner_alignment_assertion")
-      state.model.time = tf.with_dependencies(
-          [inner_alignment_assertion], state.model.time)
+      inner_alignment_assertion = tf.Assert(tf.equal(state.model.time % inner_period, 0), [state.model.time, tf.shape(inner_x)], name="inner_alignment_assertion")
+      state.model.time = tf.with_dependencies([inner_alignment_assertion], state.model.time)
 
       # restore static outer states
       state.model.cells[self.outer_slice] = outer_cell_states
@@ -592,7 +534,6 @@ class Wayback(BaseModel):
         ts.loss = tf.concat(0, state.losses)
         ts.error = tf.concat(0, state.errors)
     return ts
-
 
 def _make_sequence_graph(transition=None, model_state=None, x=None,
                          initial_xchunk=None, context=None, length=None,
@@ -638,9 +579,7 @@ def _make_sequence_graph(transition=None, model_state=None, x=None,
     if length is None:
       length = tf.shape(x)[0]
 
-    chunk_assertion = tf.Assert(tf.equal(length % hp.chunk_size, 0),
-                                [length, hp.chunk_size],
-                                name="chunk_assertion")
+    chunk_assertion = tf.Assert(tf.equal(length % hp.chunk_size, 0), [length, hp.chunk_size], name="chunk_assertion")
     length = tf.with_dependencies([chunk_assertion], length)
     chunk_count = length // hp.chunk_size
 
@@ -648,46 +587,37 @@ def _make_sequence_graph(transition=None, model_state=None, x=None,
       # infer_shape=False because it is too strict; it considers unknown
       # dimensions to be incompatible with anything else. Effectively that
       # requires all shapes to be fully defined at graph construction time.
-      return tf.tensor_array_ops.TensorArray(
-          tensor_array_name=name, infer_shape=False, **kwargs)
+      return tf.tensor_array_ops.TensorArray(tensor_array_name=name, infer_shape=False, **kwargs)
 
     state = NS(i=tf.constant(0), model=model_state)
 
-    state.xhats = _make_ta("xhats", dtype=tf.int32, size=length,
-                           clear_after_read=False)
+    state.xhats = _make_ta("xhats", dtype=tf.int32, size=length, clear_after_read=False)
     # populate the initial chunk of xhats
-    state.xhats = _put_chunk(
-        state.xhats, 0, tf.unpack(
-            (initial_xchunk if x is None else x)[:hp.chunk_size, :],
-            num=hp.chunk_size))
+    state.xhats = _put_chunk(state.xhats, 0, tf.unpack((initial_xchunk if x is None else x)[:hp.chunk_size, :],
+                                                       num=hp.chunk_size))
 
     if x is not None:
-      state.losses = _make_ta("losses", dtype=tf.float32,
-                              size=length - hp.chunk_size)
-      state.errors = _make_ta("errors", dtype=tf.bool,
-                              size=length - hp.chunk_size)
+      state.losses = _make_ta("losses", dtype=tf.float32, size=length - hp.chunk_size)
+      state.errors = _make_ta("errors", dtype=tf.bool,    size=length - hp.chunk_size)
 
-    state = tfutil.while_loop(
-        cond=lambda state: state.i < chunk_count - 1,
-        body=ft.partial(make_transition_graph,
-                        transition=transition, x=x, context=context,
-                        temperature=temperature, hp=hp),
-        loop_vars=state,
-        back_prop=back_prop)
+    state = tfutil.while_loop(cond=lambda state: state.i < chunk_count - 1,
+                              body=ft.partial(make_transition_graph,
+                                              transition=transition, x=x, context=context,
+                                              temperature=temperature, hp=hp),
+                              loop_vars=state,
+                              back_prop=back_prop)
 
     ts = NS()
     ts.final_state = state
     full_xhat = state.xhats.pack()
     ts.xhat = full_xhat[hp.chunk_size:, :]
-    ts.final_xhatchunk = _get_chunk(
-        full_xhat, length - hp.chunk_size, hp.chunk_size)
+    ts.final_xhatchunk = _get_chunk(full_xhat, length - hp.chunk_size, hp.chunk_size)
     if x is not None:
       ts.loss = tf.reduce_mean(state.losses.pack())
       ts.error = tf.reduce_mean(tf.to_float(state.errors.pack()))
       # expose the final, unprocessed chunk of x for convenience
       ts.final_xchunk = _get_chunk(x, length - hp.chunk_size, hp.chunk_size)
     return ts
-
 
 def make_transition_graph(state, transition, x=None, context=None,
                           temperature=1.0, hp=None):
@@ -723,8 +653,7 @@ def make_transition_graph(state, transition, x=None, context=None,
       xchunk = _get_flat_chunk(state.xhats if x is None else x,
                                state.i * hp.chunk_size + j, hp.chunk_size,
                                depth=hp.data_dim)
-      embedding = tfutil.layers([h, xchunk], sizes=hp.io_sizes,
-                                use_bn=hp.use_bn)
+      embedding = tfutil.layers([h, xchunk], sizes=hp.io_sizes, use_bn=hp.use_bn)
       exhat = tfutil.project(embedding, output_dim=hp.data_dim)
       exhats.append(exhat)
 
@@ -735,85 +664,31 @@ def make_transition_graph(state, transition, x=None, context=None,
     targets = tf.unpack(_get_1hot_chunk(x, (state.i + 1) * hp.chunk_size,
                                         hp.chunk_size, depth=hp.data_dim),
                         num=hp.chunk_size, axis=1)
-    state.losses = _put_chunk(
-        state.losses, state.i * hp.chunk_size,
-        [tf.nn.softmax_cross_entropy_with_logits(exhat, target)
-         for exhat, target in util.equizip(exhats, targets)])
-    state.errors = _put_chunk(
-        state.errors, state.i * hp.chunk_size,
-        [tf.not_equal(tf.nn.top_k(exhat)[1], tf.nn.top_k(target)[1])
-         for exhat, target in util.equizip(exhats, targets)])
+    state.losses = _put_chunk(state.losses, state.i * hp.chunk_size,
+                              [tf.nn.softmax_cross_entropy_with_logits(exhat, target)
+                               for exhat, target in util.equizip(exhats, targets)])
+    state.errors = _put_chunk(state.errors, state.i * hp.chunk_size,
+                              [tf.not_equal(tf.nn.top_k(exhat)[1], tf.nn.top_k(target)[1])
+                               for exhat, target in util.equizip(exhats, targets)])
 
   state.i += 1
   return state
 
-
 def _get_chunk(array, start, size):
-  """Get a chunk from a Tensor or TensorArray.
-
-  Args:
-    array: Tensor or TensorArray to take a chunk from.
-    start: Index of the first element of the chunk.
-    size: Length of the chunk.
-
-  Returns:
-    The subsequence array[start:start + size].
-  """
   if isinstance(array, tf.Tensor):
-    return tf.slice(array, tf.pack([start, 0]),
-                    tf.pack([size, tf.shape(array)[1]]))
+    return tf.slice(array, tf.pack([start, 0]), tf.pack([size, tf.shape(array)[1]]))
   elif isinstance(array, tf.TensorArray):
     return tf.pack([array.read(start + j) for j in range(size)])
   else:
     assert False
 
-
 def _get_1hot_chunk(array, start, size, depth):
-  """Get a one-hot chunk from a Tensor or TensorArray.
-
-  Args:
-    array: Tensor or TensorArray to read from.
-    start: Index of the first element of the chunk.
-    size: Length of the chunk.
-    depth: Number of categories.
-
-  Returns:
-    The subsequence array[start:start + size], one-hot encoded.
-  """
-  return tfutil.shaped_one_hot(
-      tf.transpose(_get_chunk(array, start, size)),
-      [None, size, depth])
-
+  return tfutil.shaped_one_hot(tf.transpose(_get_chunk(array, start, size)), [None, size, depth])
 
 def _get_flat_chunk(array, start, size, depth):
-  """Get a flattened one-hot chunk from a Tensor or TensorArray.
-
-  Args:
-    array: Tensor or TensorArray to read from.
-    start: Index of the first element of the chunk.
-    size: Length of the chunk.
-    depth: Number of categories.
-
-  Returns:
-    The subsequence array[start:start + size], one-hot encoded and flattened
-    to shape [batch, size * depth].
-  """
-  return tf.reshape(_get_1hot_chunk(array, start, size, depth),
-                    [-1, size * depth])
-
+  return tf.reshape(_get_1hot_chunk(array, start, size, depth), [-1, size * depth])
 
 def _put_chunk(array, start, values):
-  """Write a chunk of values to a TensorArray.
-
-  Args:
-    array: TensorArray to write to.
-    start: Index for the first element of the chunk.
-    values: The Tensors to write to `array`.
-
-  Returns:
-    The updated TensorArray, with the values assigned to
-    array[start:start + len(values)].
-  """
   for j, value in enumerate(values):
     array = array.write(start + j, value)
   return array

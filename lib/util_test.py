@@ -1,27 +1,20 @@
-import numpy as np
-import unittest
-
-import magenta.models.wayback.lib.util as util
-
+import numpy as np, unittest
+import lib.util as util
 
 class UtilTest(unittest.TestCase):
-
   def setUp(self):
     pass
 
   def test_equizip(self):
-    self.assertRaises(ValueError,
-                      lambda: list(util.equizip(range(2), range(3), range(5))))
-    self.assertRaises(ValueError,
-                      lambda: list(util.equizip(range(5), range(3), range(5))))
+    self.assertRaises(ValueError, lambda: list(util.equizip(range(2), range(3), range(5))))
+    self.assertRaises(ValueError, lambda: list(util.equizip(range(5), range(3), range(5))))
     self.assertEqual([(2, 0), (1, 1), (0, 2)],
                      list(util.equizip(reversed(range(3)), range(3))))
 
   def test_pad(self):
     for _ in range(5):
       m, n = np.random.randint(2, 30, size=[2])
-      xs = list(np.random.rand(length, 3, 5)
-                for length in np.random.randint(1, n, size=[m]))
+      xs = list(np.random.rand(length, 3, 5) for length in np.random.randint(1, n, size=[m]))
       ys = util.pad(xs)
       self.assertEqual(ys.shape[0], m)
       self.assertLessEqual(ys.shape[1], n)
@@ -67,10 +60,8 @@ class UtilTest(unittest.TestCase):
     self.assertEqual(list(xs), list(ys))
 
     k = np.random.randint(1, segment_length - 1)
-    for i, segment in enumerate(util.segments(examples, segment_length,
-                                              overlap=k)):
+    for i, segment in enumerate(util.segments(examples, segment_length, overlap=k)):
       if i != 0:
-        # pylint: disable=used-before-assignment
         self.assertTrue(np.array_equal(overlap, segment[0][0][:k]))
       overlap = segment[0][0][-k:]
 
@@ -154,7 +145,6 @@ class UtilTest(unittest.TestCase):
                      list(util.segments(examples, 4, overlap, truncate=False)))
     self.assertEqual([],
                      list(util.segments(examples, 4, overlap, truncate=True)))
-
 
 if __name__ == "__main__":
   unittest.main()
