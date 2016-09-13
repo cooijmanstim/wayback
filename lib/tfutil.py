@@ -86,7 +86,7 @@ def project(x, output_dim=None, use_bias=True, scope=None):
     The projection of `x`.
   """
   with tf.variable_op_scope([x], scope or "project"):
-    input_dim = x.shape[-1]
+    input_dim = x.get_shape().as_list()[-1]
     w = tf.get_variable("w", shape=[input_dim, output_dim], regularizer=lambda w: w,
                         initializer=tf.truncated_normal_initializer(stddev=math.sqrt(1. / output_dim)))
     y = tf.matmul(x, w)
@@ -112,10 +112,11 @@ def batch_normalize(x, beta=None, gamma=None, epsilon=1e-5, scope=None):
   # TODO(cotim): implement population statistics
   with tf.variable_op_scope([x, beta, gamma], scope or "bn"):
     mean, variance = tf.nn.moments(x, [0])
+    dim = x.get_shape().as_list()[-1]
     if gamma is None:
-      gamma = tf.get_variable("gamma", shape=x.shape[-1], initializer=tf.constant_initializer(0.1))
+      gamma = tf.get_variable("gamma", shape=dim, initializer=tf.constant_initializer(0.1))
     if beta is None:
-      beta = tf.get_variable("beta", shape=x.shape[-1], initializer=tf.constant_initializer(0))
+      beta = tf.get_variable("beta", shape=dim, initializer=tf.constant_initializer(0))
     return tf.nn.batch_normalization(x, mean, variance, beta, gamma, epsilon)
 
 def while_loop(cond, body, loop_vars, **kwargs):
