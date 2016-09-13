@@ -77,7 +77,7 @@ def main(argv):
 
   best_saver = tf.train.Saver()
   supervisor = tf.train.Supervisor(logdir=output_dir, summary_op=None)
-  session = supervisor.PrepareSession("local")
+  session = supervisor.PrepareSession()
   try:
     tracking = NS(best_loss=None, reset_time=0)
 

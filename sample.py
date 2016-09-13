@@ -60,7 +60,7 @@ def main(argv):
   model = models.construct(hp)
   sampler = sampling.Sampler(model, hp=hp)
   saver = tf.train.Saver()
-  session = tf.Session("local")
+  session = tf.Session()
   saver.restore(session, FLAGS.model_ckpt)
 
   sample_length = hp.sampling_frequency * FLAGS.sample_duration
