@@ -590,7 +590,7 @@ def _make_sequence_graph(transition=None, model_state=None, x=None,
       # infer_shape=False because it is too strict; it considers unknown
       # dimensions to be incompatible with anything else. Effectively that
       # requires all shapes to be fully defined at graph construction time.
-      return tf.tensor_array_ops.TensorArray(tensor_array_name=name, infer_shape=False, **kwargs)
+      return tf.TensorArray(tensor_array_name=name, infer_shape=False, **kwargs)
 
     state = NS(i=tf.constant(0), model=model_state)
 
