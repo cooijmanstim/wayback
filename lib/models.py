@@ -451,7 +451,8 @@ class Wayback(BaseModel):
     # somewhere halfway through the cycle. ensure we start at a cycle boundary.
     chunk_size = hp.chunk_size
     outer_alignment_assertion = tf.Assert(tf.equal(state.model.time, 0), [state.model.time], name="outer_alignment_assertion")
-    state.model.time = tf.with_dependencies([outer_alignment_assertion], state.model.time)
+    with tf.control_dependencies([outer_alignment_assertion]):
+      state.model.time = tf.identity(state.model.time)
     # ensure we end at a cycle boundary too.
     assert (length - chunk_size) % (self.period * chunk_size) == 0
 
@@ -514,7 +515,8 @@ class Wayback(BaseModel):
 
       # double check alignment to be safe
       inner_alignment_assertion = tf.Assert(tf.equal(state.model.time % inner_period, 0), [state.model.time, tf.shape(inner_x)], name="inner_alignment_assertion")
-      state.model.time = tf.with_dependencies([inner_alignment_assertion], state.model.time)
+      with tf.control_dependencies([inner_alignment_assertion]):
+        state.model.time = tf.identity(state.model.time)
 
       # restore static outer states
       state.model.cells[self.outer_slice] = outer_cell_states
@@ -580,7 +582,8 @@ def _make_sequence_graph(transition=None, model_state=None, x=None,
       length = tf.shape(x)[0]
 
     chunk_assertion = tf.Assert(tf.equal(length % hp.chunk_size, 0), [length, hp.chunk_size], name="chunk_assertion")
-    length = tf.with_dependencies([chunk_assertion], length)
+    with tf.control_dependencies([chunk_assertion]):
+      length = tf.identity(length)
     chunk_count = length // hp.chunk_size
 
     def _make_ta(name, **kwargs):
