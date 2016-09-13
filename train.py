@@ -75,7 +75,7 @@ def main(argv):
   evaluator = evaluation.Evaluator(model, hp=hp)
   print "done"
 
-  best_saver = tf.Saver()
+  best_saver = tf.train.Saver()
   supervisor = tf.Supervisor(logdir=output_dir, summary_op=None)
   session = supervisor.PrepareSession("local")
   try:
