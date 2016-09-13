@@ -22,9 +22,9 @@ def layers(xs, sizes, scope=None, **layer_kwargs):
     The output of the last layer.
   """
   xs = list(xs)
-  with tf.variable_op_scope(xs, scope or "layers"):
+  with tf.variable_scope(scope or "layers", values=xs):
     for i, size in enumerate(sizes):
-      with tf.variable_op_scope(xs, str(i)):
+      with tf.variable_scope(str(i), values=xs):
         xs = [layer(xs, output_dim=size, **layer_kwargs)]
     return xs[0]
 
@@ -58,7 +58,8 @@ def project_terms(xs, output_dim=None, use_bn=False, use_bias=True, scope=None):
   Returns:
     The sum of the projections of `xs`.
   """
-  with tf.variable_op_scope([xs], scope or "project_terms"):
+  xs = list(xs)
+  with tf.variable_scope(scope or "project_terms", values=xs):
     if use_bn:
       # batch-normalize each projection separately before summing
       projected_xs = [project(x, output_dim=output_dim, use_bias=False, scope=str(i))
@@ -85,7 +86,7 @@ def project(x, output_dim=None, use_bias=True, scope=None):
   Returns:
     The projection of `x`.
   """
-  with tf.variable_op_scope([x], scope or "project"):
+  with tf.variable_scope(scope or "project", [x]):
     input_dim = x.get_shape().as_list()[-1]
     w = tf.get_variable("w", shape=[input_dim, output_dim], regularizer=lambda w: w,
                         initializer=tf.truncated_normal_initializer(stddev=math.sqrt(1. / output_dim)))
@@ -110,7 +111,7 @@ def batch_normalize(x, beta=None, gamma=None, epsilon=1e-5, scope=None):
     `x`, batch-normalized.
   """
   # TODO(cotim): implement population statistics
-  with tf.variable_op_scope([x, beta, gamma], scope or "bn"):
+  with tf.variable_scope(scope or "bn", [x, beta, gamma]):
     mean, variance = tf.nn.moments(x, [0])
     dim = x.get_shape().as_list()[-1]
     if gamma is None:
