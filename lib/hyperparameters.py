@@ -149,7 +149,7 @@ def dump(filelike, hp):
     hp: Namespace object to dump.
   """
   if not isinstance(filelike, file):
-    filelike = tf.gfile.Open(filelike, "w")
+    filelike = open(filelike, "w")
   filelike.write(yaml.dump(hp.AsDict()))
 
 def load(filelike):
@@ -162,7 +162,7 @@ def load(filelike):
     Namespace containing hyperparameters.
   """
   if not isinstance(filelike, file):
-    filelike = tf.gfile.Open(filelike)
+    filelike = open(filelike)
   hp = yaml.load(filelike.read())
   hp = get_defaults(**hp)
   return hp

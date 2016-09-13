@@ -1,4 +1,4 @@
-import os, tensorflow as tf
+import glob, os, tensorflow as tf
 
 from lib.namespace import Namespace as NS
 import lib.evaluation as evaluation
@@ -48,7 +48,7 @@ def main(argv):
   hp = hyperparameters.parse(FLAGS.hyperparameters)
 
   print "loading data from %s" % FLAGS.data_dir
-  dataset = wavefile.Dataset(NS((fold, tf.gfile.Glob(os.path.join(FLAGS.data_dir, "%s/*.wav" % fold)))
+  dataset = wavefile.Dataset(NS((fold, glob.glob(os.path.join(FLAGS.data_dir, "%s/*.wav" % fold)))
                                 for fold in "train valid test".split()),
                              frequency=hp.sampling_frequency, bit_depth=hp.bit_depth)
   print "done"

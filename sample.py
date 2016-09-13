@@ -74,12 +74,7 @@ def main(argv):
 
   output_path = FLAGS.base_output_path + "samples.npz"
   print "writing raw sample data to %s" % output_path
-  # go through StringIO so numpy can seek
-  pfft = StringIO.StringIO()
-  np.savez_compressed(pfft, x=x, xhat=xhat)
-  pfft.seek(0)
-  with tf.gfile.Open(output_path, "w") as output_file:
-    output_file.write(pfft.read())
+  np.savez_compressed(output_path, x=x, xhat=xhat)
 
 if __name__ == "__main__":
   tf.app.run()

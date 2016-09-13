@@ -84,9 +84,8 @@ def load_wavfile(path, bit_depth, frequency):
   Returns:
     The waveform as a sequence of categorical integers.
   """
-  with tf.gfile.Open(path) as filelike:
-    wav = wave.open(filelike)
-    x = wav.readframes(wav.getnframes())
+  wav = wave.open(path)
+  x = wav.readframes(wav.getnframes())
 
   # convert to mono
   if wav.getnchannels() > 1:
@@ -130,5 +129,5 @@ def dump_wavfile(path, x, bit_depth, frequency):
   x /= 2 ** bit_depth
   x = x * 2 - 1
 
-  with tf.gfile.Open(path, "w") as outfile:
-    wavfile.write(outfile, frequency, x)
+  wavfile.write(path, frequency, x)
+
