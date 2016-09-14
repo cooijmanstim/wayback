@@ -11,7 +11,8 @@ def construct(hp):
                     elu=tf.nn.elu)[hp.activation]
   cell_implementation = dict(lstm=cells.LSTM,
                              gru=cells.GRU,
-                             rnn=cells.RNN)[hp.cell]
+                             rnn=cells.RNN,
+                             rrnn=cells.RRNN)[hp.cell]
   cells_ = [cell_implementation(layer_size, use_bn=hp.use_bn, activation=activation, scope="cell%i" % i)
             for i, layer_size in enumerate(hp.layer_sizes)]
   model_implementation = dict(stack=Stack, wayback=Wayback)[hp.layout]

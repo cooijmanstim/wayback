@@ -166,3 +166,39 @@ class RNN(BaseCell):
                                use_bn=self.use_bn)
       new_h = self.activation(g)
     return [new_h]
+
+class RRNN(BaseCell):
+  def __init__(self, num_units, activation=tf.nn.tanh, use_bn=False, scope=None):
+    self.num_units = num_units
+    self.activation = activation
+    self.use_bn = use_bn
+    self.scope = scope if scope is not None else "rnn-%x" % id(self)
+
+  @property
+  def state_size(self):
+    return [self.num_units]
+
+  @property
+  def output_size(self):
+    return self.num_units
+
+  def get_output(self, state):
+    return state[0]
+
+  def transition(self, inputs, state, scope=None):
+    with tf.variable_scope(scope or self.scope):
+      h, = state
+      total_input = tfutil.project_terms([h] + inputs,
+                                         output_dim=2 * self.num_units,
+                                         use_bn=self.use_bn, scope="ig")
+      i, g = tf.split(1, 2, total_input)
+
+      # h <- BN(h) + sigmoid(i) * BN(V tanh(g))
+      new_h = h
+      if self.use_bn:
+        new_h = tfutil.batch_normalize(new_h, scope="bn_h")
+      dh = tfutil.project_terms([self.activation(g)], output_dim=self.num_units, use_bn=self.use_bn, scope="dh")
+      dh *= tf.nn.sigmoid(i)
+      new_h += dh
+
+    return new_h,
