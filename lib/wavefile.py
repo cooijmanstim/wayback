@@ -94,21 +94,17 @@ def load_wavfile(path, bit_depth, frequency):
   # convert sampling rate
   x, _ = audioop.ratecv(x, wav.getsampwidth(), 1, wav.getframerate(), frequency, None)
 
-  # convert to numpy array
+  # center and normalize (done in np.float32 to avoid loss of precision)
   dtype = {1: np.uint8, 2: np.int16, 4: np.int32}[wav.getsampwidth()]
   x = np.frombuffer(x, dtype).astype(np.float32)
-
-  # center and normalize
   x -= x.mean()
   max_amplitude = abs(x).max()
   # if this happens i'd like to know about it
   assert max_amplitude > 0
   x /= max_amplitude
 
-  # discretize to 2 ** bit_depth steps
-  x = (x + 1) / 2  # [-1, 1] -> [0, 1]
-  x *= 2 ** bit_depth - 1  # e.g. [0, 1] -> [0, 255]
-  x = x.round().astype(np.int32)
+  x = ulaw(x, mu=bit_depth - 1)
+  x = ((2 ** bit_depth - 1) * (x + 1) / 2).round().astype(np.int32)
 
   return x
 
@@ -125,9 +121,13 @@ def dump_wavfile(path, x, bit_depth, frequency):
     bit_depth: resolution of the amplitude discretization, in bits
     frequency: sampling frequency
   """
-  x = np.asarray(x, np.float32)
-  x /= 2 ** bit_depth
-  x = x * 2 - 1
-
+  x = np.asarray(x, np.float32) / 2 ** bit_depth * 2 - 1
+  x = inverse_ulaw(x, mu=bit_depth - 1)
   wavfile.write(path, frequency, x)
+
+def ulaw(x, mu=255):
+  return np.sign(x) * np.log(1 + mu * np.abs(x)) / np.log(1 + mu)
+
+def inverse_ulaw(y, mu=255):
+  return np.sign(y) / mu * ((1 + mu) ** np.abs(y) - 1)
 
