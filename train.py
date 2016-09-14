@@ -81,23 +81,26 @@ def main(argv):
   try:
     tracking = NS(best_loss=None, reset_time=0)
 
+    def track(loss, step):
+      if tracking.best_loss is None or loss < tracking.best_loss:
+        tracking.best_loss = loss
+        tracking.reset_time = step
+        best_saver.save(session,
+                        os.path.join(os.path.dirname(supervisor.save_path),
+                                     "best_%i_%s.ckpt" % (step, loss)),
+                        global_step=supervisor.global_step)
+      elif step - tracking.reset_time > hp.decay_patience:
+        session.run(trainer.tensors.decay_op)
+        tracking.reset_time = step
+
     def maybe_validate(state):
       if state.global_step % FLAGS.validation_interval == 0:
         values = evaluator.run(examples=dataset.examples.valid, session=session, hp=hp,
                                # don't spend too much time evaluating
                                max_step_count=FLAGS.validation_interval // 3)
         supervisor.summary_computed(session, tf.Summary(value=values.summaries))
-
-        if tracking.best_loss is None or values.loss < tracking.best_loss:
-          tracking.best_loss = values.loss
-          tracking.reset_time = state.global_step
-          best_saver.save(session,
-                          os.path.join(os.path.dirname(supervisor.save_path),
-                                       "best_%i_%s.ckpt" % (state.global_step, values.loss)),
-                          global_step=supervisor.global_step)
-        elif state.global_step - tracking.reset_time > hp.decay_patience:
-          session.run(trainer.tensors.decay_op)
-          tracking.reset_time = state.global_step
+        # don't track validation loss (we're trying to overfit)
+        # track(values.loss, state.global_step)
 
     def maybe_stop(_):
       if supervisor.ShouldStop():
@@ -107,9 +110,11 @@ def main(argv):
       maybe_validate(state)
       maybe_stop(state)
 
-    def after_step_hook(_, values):
+    def after_step_hook(state, values):
       for summary in values.summaries:
         supervisor.summary_computed(session, summary)
+      # decay learning rate based on training loss (we're trying to overfit)
+      track(values.loss, state.global_step)
 
     print "training."
     try:
