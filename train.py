@@ -13,6 +13,7 @@ tf.flags.DEFINE_bool("resume", False, "resume training from a checkpoint or dele
 tf.flags.DEFINE_integer("max_step_count", 100000, "max number of training steps")
 tf.flags.DEFINE_integer("max_examples", None, "number of examples to train on")
 tf.flags.DEFINE_integer("validation_interval", 100, "number of training steps between validations")
+tf.flags.DEFINE_integer("tracking_interval", 100, "number of training steps between performance tracking") # fine-grained hits NFS all the time
 tf.flags.DEFINE_string("basename", None, "model name prefix")
 tf.flags.DEFINE_string("hyperparameters", "", "hyperparameter settings")
 tf.flags.DEFINE_string("data_dir", None, "path to data directory; must have" " train/valid/test subdirectories containing wav files")
@@ -82,16 +83,17 @@ def main(argv):
     tracking = NS(best_loss=None, reset_time=0)
 
     def track(loss, step):
-      if tracking.best_loss is None or loss < tracking.best_loss:
-        tracking.best_loss = loss
-        tracking.reset_time = step
-        best_saver.save(session,
-                        os.path.join(os.path.dirname(supervisor.save_path),
-                                     "best_%i_%s.ckpt" % (step, loss)),
-                        global_step=supervisor.global_step)
-      elif step - tracking.reset_time > hp.decay_patience:
-        session.run(trainer.tensors.decay_op)
-        tracking.reset_time = step
+      if step % FLAGS.tracking_interval == 0:
+        if tracking.best_loss is None or loss < tracking.best_loss:
+          tracking.best_loss = loss
+          tracking.reset_time = step
+          best_saver.save(session,
+                          os.path.join(os.path.dirname(supervisor.save_path),
+                                       "best_%i_%s.ckpt" % (step, loss)),
+                          global_step=supervisor.global_step)
+        elif step - tracking.reset_time > hp.decay_patience:
+          session.run(trainer.tensors.decay_op)
+          tracking.reset_time = step
 
     def maybe_validate(state):
       if state.global_step % FLAGS.validation_interval == 0:
