@@ -1,11 +1,11 @@
-import glob, os, tensorflow as tf
+import os, tensorflow as tf
 
 from lib.namespace import Namespace as NS
 import lib.evaluation as evaluation
 import lib.hyperparameters as hyperparameters
 import lib.models as models
 import lib.training as training
-import lib.dataset as dataset
+import lib.datasets as datasets
 
 FLAGS = tf.flags.FLAGS
 tf.flags.DEFINE_string("base_output_dir", "/tmp/models", "output directory where models should be stored")
@@ -50,8 +50,8 @@ def main(argv):
   hp = hyperparameters.parse(FLAGS.hyperparameters)
 
   print "loading data from %s" % FLAGS.data_dir
-  dataset = dataset.construct(FLAGS.data_type, directory=FLAGS.data_dir,
-                              frequency=hp.sampling_frequency, bit_depth=hp.bit_depth)
+  dataset = datasets.construct(FLAGS.data_type, directory=FLAGS.data_dir,
+                               frequency=hp.sampling_frequency, bit_depth=hp.bit_depth)
   print "done"
   hp.data_dim = dataset.data_dim
 

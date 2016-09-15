@@ -1,9 +1,17 @@
-import audioop, wave, numpy as np, tensorflow as tf
+import glob, os, audioop, wave, numpy as np, tensorflow as tf
 import scipy.io.wavfile as wavfile
 from lib.namespace import Namespace as NS
 
+def construct(data_type, paths=None, directory=None, **kwargs):
+  klass = dict(wave=Wave, bytes=Bytes)[data_type]
+  return klass(paths=paths, directory=directory, **kwargs)
+
 class Dataset(object):
-  def __init__(self, paths):
+  def __init__(self, paths=None, directory=None):
+    assert (paths is None) != (directory is None)
+    if paths is None:
+      paths = NS((fold, glob.glob(os.path.join(directory, "%s/*%s" % (fold, self.filename_suffix))))
+                 for fold in "train valid test".split())
     self.paths = paths
     self.examples = self.load(self.paths)
 
@@ -11,30 +19,16 @@ class Dataset(object):
   def data_dim(self):
     raise NotImplementedError()
 
-  @property
-  def filename_suffix(self):
-    raise NotImplementedError()
-
   def dump(self, base_path, example):
     raise NotImplementedError()
 
-  @staticmethod
-  def construct(data_type, paths=None, directory=None, **kwargs):
-    assert (paths is None) != (directory is None)
-    if paths is None:
-      paths = NS((fold, glob.glob(os.path.join(directory, "%s/*%s" % (fold, self.filename_suffix))))
-                 for fold in "train valid test".split())
-    return dict(wave=Wave, bytes=Bytes)[data_type](paths, **kwargs)
-
 class Bytes(Dataset):
+  filename_suffix = ""
+
   @property
   def data_dim(self):
     # we just deal with any possible byte
     return 256
-
-  @property
-  def filename_suffix(self):
-    return ""
 
   def load(self, paths):
     return NS.UnflattenLike(paths, [[list(open(path, "rb").read())] for path in NS.Flatten(paths)])
@@ -45,6 +39,8 @@ class Bytes(Dataset):
       outfile.write(sequence)
 
 class Wave(Dataset):
+  filename_suffix = ".wav"
+
   def __init__(self, paths, frequency, bit_depth, **kwargs):
     """Initialize a Wav instance.
 
@@ -64,10 +60,6 @@ class Wave(Dataset):
   def data_dim(self):
     """Number of classes."""
     return 2 ** self.bit_depth
-
-  @property
-  def filename_suffix(self):
-    return ".wav"
 
   def load(self, paths):
     """Load data.

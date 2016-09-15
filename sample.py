@@ -4,7 +4,7 @@ import lib.hyperparameters as hyperparameters
 import lib.models as models
 import lib.sampling as sampling
 import lib.util as util
-import lib.dataset as dataset
+import lib.datasets as datasets
 
 FLAGS = tf.flags.FLAGS
 tf.flags.DEFINE_integer("sample_duration", 10, "length of sample to generate, in seconds")
@@ -54,8 +54,8 @@ def main(argv):
 
   assert primer_paths
 
-  dataset = dataset.construct(FLAGS.data_type, paths=primer_paths,
-                              frequency=hp.sampling_frequency, bit_depth=hp.bit_depth)
+  dataset = datasets.construct(FLAGS.data_type, paths=primer_paths,
+                               frequency=hp.sampling_frequency, bit_depth=hp.bit_depth)
 
   primers = dataset.examples
   primers = preprocess_primers(primers, hp=hp)
