@@ -4,7 +4,7 @@ import lib.hyperparameters as hyperparameters
 import lib.models as models
 import lib.sampling as sampling
 import lib.util as util
-import lib.wavefile as wavefile
+import lib.dataset as dataset
 
 FLAGS = tf.flags.FLAGS
 tf.flags.DEFINE_integer("sample_duration", 10, "length of sample to generate, in seconds")
@@ -12,6 +12,7 @@ tf.flags.DEFINE_float("temperature", 1, "temperature to apply to softmax when sa
 tf.flags.DEFINE_string("model_hyperparameters", None, "path to model hyperparameter yaml file")
 tf.flags.DEFINE_string("model_ckpt", None, "checkpoint from which to load parameter values")
 tf.flags.DEFINE_string("base_output_path", None, "prefix for output paths")
+tf.flags.DEFINE_string("data_type", "wave", "either wave or bytes")
 
 def preprocess_primers(examples, hp):
   # maybe augment number of examples to ensure batch norm will work
@@ -52,7 +53,9 @@ def main(argv):
   hp = hyperparameters.load(FLAGS.model_hyperparameters)
 
   assert primer_paths
-  dataset = wavefile.Dataset(primer_paths, frequency=hp.sampling_frequency, bit_depth=hp.bit_depth)
+
+  dataset = dataset.construct(FLAGS.data_type, paths=primer_paths,
+                              frequency=hp.sampling_frequency, bit_depth=hp.bit_depth)
 
   primers = dataset.examples
   primers = preprocess_primers(primers, hp=hp)

@@ -3,7 +3,49 @@ import scipy.io.wavfile as wavfile
 from lib.namespace import Namespace as NS
 
 class Dataset(object):
-  def __init__(self, paths, frequency, bit_depth):
+  def __init__(self, paths):
+    self.paths = paths
+    self.examples = self.load(self.paths)
+
+  @property
+  def data_dim(self):
+    raise NotImplementedError()
+
+  @property
+  def filename_suffix(self):
+    raise NotImplementedError()
+
+  def dump(self, base_path, example):
+    raise NotImplementedError()
+
+  @staticmethod
+  def construct(data_type, paths=None, directory=None, **kwargs):
+    assert (paths is None) != (directory is None)
+    if paths is None:
+      paths = NS((fold, glob.glob(os.path.join(directory, "%s/*%s" % (fold, self.filename_suffix))))
+                 for fold in "train valid test".split())
+    return dict(wave=Wave, bytes=Bytes)[data_type](paths, **kwargs)
+
+class Bytes(Dataset):
+  @property
+  def data_dim(self):
+    # we just deal with any possible byte
+    return 256
+
+  @property
+  def filename_suffix(self):
+    return ""
+
+  def load(self, paths):
+    return NS.UnflattenLike(paths, [[list(open(path, "rb").read())] for path in NS.Flatten(paths)])
+
+  def dump(self, base_path, example):
+    sequence, = example
+    with open("%s.txt" % base_path, "wb") as outfile:
+      outfile.write(sequence)
+
+class Wave(Dataset):
+  def __init__(self, paths, frequency, bit_depth, **kwargs):
     """Initialize a Wav instance.
 
     The wav files referenced by `paths` will be made available under the
@@ -14,15 +56,18 @@ class Dataset(object):
       frequency: desired sampling frequency
       bit_depth: desired amplitude resolution in bits
     """
-    self.paths = paths
     self.frequency = frequency
     self.bit_depth = bit_depth
-    self.examples = self.load(self.paths)
+    super(Wave, self).__init__(paths, **kwargs)
 
   @property
   def data_dim(self):
     """Number of classes."""
     return 2 ** self.bit_depth
+
+  @property
+  def filename_suffix(self):
+    return ".wav"
 
   def load(self, paths):
     """Load data.
@@ -130,4 +175,3 @@ def ulaw(x, mu=255):
 
 def inverse_ulaw(y, mu=255):
   return np.sign(y) / mu * ((1 + mu) ** np.abs(y) - 1)
-

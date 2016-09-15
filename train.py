@@ -5,7 +5,7 @@ import lib.evaluation as evaluation
 import lib.hyperparameters as hyperparameters
 import lib.models as models
 import lib.training as training
-import lib.wavefile as wavefile
+import lib.dataset as dataset
 
 FLAGS = tf.flags.FLAGS
 tf.flags.DEFINE_string("base_output_dir", "/tmp/models", "output directory where models should be stored")
@@ -16,6 +16,7 @@ tf.flags.DEFINE_integer("validation_interval", 100, "number of training steps be
 tf.flags.DEFINE_string("basename", None, "model name prefix")
 tf.flags.DEFINE_string("hyperparameters", "", "hyperparameter settings")
 tf.flags.DEFINE_string("data_dir", None, "path to data directory; must have" " train/valid/test subdirectories containing wav files")
+tf.flags.DEFINE_string("data_type", None, "either wave or bytes")
 
 class StopTraining(Exception):
   pass
@@ -48,9 +49,8 @@ def main(argv):
   hp = hyperparameters.parse(FLAGS.hyperparameters)
 
   print "loading data from %s" % FLAGS.data_dir
-  dataset = wavefile.Dataset(NS((fold, glob.glob(os.path.join(FLAGS.data_dir, "%s/*.wav" % fold)))
-                                for fold in "train valid test".split()),
-                             frequency=hp.sampling_frequency, bit_depth=hp.bit_depth)
+  dataset = dataset.construct(FLAGS.data_type, directory=FLAGS.data_dir,
+                              frequency=hp.sampling_frequency, bit_depth=hp.bit_depth)
   print "done"
   hp.data_dim = dataset.data_dim
 
