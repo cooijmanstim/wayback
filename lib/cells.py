@@ -87,6 +87,7 @@ class LSTM(BaseCell):
       if self.use_bn:
         output_c = tfutil.batch_normalize(output_c, scope="c")
       new_h = tf.nn.sigmoid(o) * self.activation(output_c)
+      new_c = output_c
     return new_c, new_h
 
 class GRU(BaseCell):
