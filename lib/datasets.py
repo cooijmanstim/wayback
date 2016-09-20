@@ -3,15 +3,18 @@ import scipy.io.wavfile as wavfile
 from lib.namespace import Namespace as NS
 
 def construct(data_type, paths=None, directory=None, **kwargs):
-  klass = dict(wave=Wave, bytes=Bytes)[data_type]
+  klass = dict(wave=Wave, bytes=Bytes, enwik8=Enwik8, linux=Linux)[data_type]
   return klass(paths=paths, directory=directory, **kwargs)
 
 class Dataset(object):
-  def __init__(self, paths=None, directory=None):
+  def __init__(self, paths=None, directory=None, **kwargs):
     assert (paths is None) != (directory is None)
     if paths is None:
       paths = NS((fold, glob.glob(os.path.join(directory, "%s/*%s" % (fold, self.filename_suffix))))
                  for fold in "train valid test".split())
+      if not NS.Flatten(paths):
+        # no files found at all, probably not intended
+        import pdb; pdb.set_trace()
     self.paths = paths
     self.examples = self.load(self.paths)
 
@@ -31,12 +34,64 @@ class Bytes(Dataset):
     return 256
 
   def load(self, paths):
-    return NS.UnflattenLike(paths, [[list(open(path, "rb").read())] for path in NS.Flatten(paths)])
+    return NS.UnflattenLike(paths,
+                            [[np.array(list(map(ord, open(path, "rb").read())), dtype=np.int32)]
+                             for path in NS.Flatten(paths)])
 
   def dump(self, base_path, example):
     sequence, = example
-    with open("%s.txt" % base_path, "wb") as outfile:
+    with open("%s%s" % (base_path, self.filename_suffix), "wb") as outfile:
       outfile.write(sequence)
+
+class RestrictedBytes(Bytes):
+  filename_suffix = ""
+  vocab = ""
+
+  @property
+  def data_dim(self):
+    return len(self.vocab)
+
+  def load(self, paths):
+    bytemap = np.zeros((2**8,), dtype=np.int32)
+    bytemap[list(map(ord, self.vocab))] = np.arange(len(self.vocab))
+    return NS.UnflattenLike(paths,
+                            [[bytemap[list(map(ord, open(path, "rb").read()))]]
+                             for path in NS.Flatten(paths)])
+
+  def dump(self, base_path, example):
+    sequence, = example
+    with open("%s%s" % (base_path, self.filename_suffix), "wb") as outfile:
+      outfile.write(sequence)
+
+
+class Enwik8(RestrictedBytes):
+  filename_suffix = ".txt"
+  vocab = list(
+    """\t\n !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"""
+    """\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f"""
+    """\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f"""
+    """\xa0\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xab\xac\xad\xae\xaf"""
+    """\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf"""
+    """\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xcb\xcc\xcd\xce\xcf"""
+    """\xd0\xd1\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xdb\xdc\xde"""
+    """\xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xef"""
+    """\xf0""")
+
+
+class Linux(RestrictedBytes):
+  filename_suffix = ""
+  vocab = list(
+    """\t\n\x0c\x14\x1b !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"""
+    """\x7f"""
+    """\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f"""
+    """\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f"""
+    """\xa0\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xab\xac\xad\xae\xaf"""
+    """\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf"""
+    """\xc0\xc1\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xcb\xcc\xcd\xce\xcf"""
+    """\xd0\xd1\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xdb\xdc\xdd\xde\xdf"""
+    """\xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef"""
+    """\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd\xfe\xff""")
+
 
 class Wave(Dataset):
   filename_suffix = ".wav"
