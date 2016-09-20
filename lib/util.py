@@ -199,3 +199,14 @@ class MeanAggregate(object):
   @property
   def value(self):
     return self.v
+
+class LastAggregate(object):
+  def __init__(self):
+    self.v = None
+
+  def add(self, x):
+    self.v = x
+
+  @property
+  def value(self):
+    return self.v

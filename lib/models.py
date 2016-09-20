@@ -509,6 +509,7 @@ class Wayback(BaseModel):
       state.inner_initial_xchunk = inner_ts.final_xchunk if x is not None else inner_ts.final_xhatchunk
       state.final_xhatchunk = inner_ts.final_xhatchunk
       if x is not None:
+        state.final_x=inner_x
         state.final_xchunk = inner_ts.final_xchunk
         state.losses.append(inner_ts.loss)
         state.errors.append(inner_ts.error)
@@ -527,6 +528,7 @@ class Wayback(BaseModel):
     ts.final_xhatchunk = state.final_xhatchunk
     ts.final_state = state
     if x is not None:
+      ts.final_x = state.final_x
       ts.final_xchunk = state.final_xchunk
       if back_prop:
         # take only the last subsequence's losses so we don't bypass the
@@ -600,6 +602,8 @@ def _make_sequence_graph(transition=None, model_state=None, x=None,
     state.xhats = _put_chunk(state.xhats, 0, tf.unpack((initial_xchunk if x is None else x)[:hp.chunk_size, :],
                                                        num=hp.chunk_size))
 
+    state.exhats = _make_ta("exhats", dtype=tf.float32, size=length - hp.chunk_size)
+
     if x is not None:
       state.losses = _make_ta("losses", dtype=tf.float32, size=length - hp.chunk_size)
       state.errors = _make_ta("errors", dtype=tf.bool,    size=length - hp.chunk_size)
@@ -619,6 +623,7 @@ def _make_sequence_graph(transition=None, model_state=None, x=None,
     if x is not None:
       ts.loss = tf.reduce_mean(state.losses.pack())
       ts.error = tf.reduce_mean(tf.to_float(state.errors.pack()))
+      ts.final_x = x
       # expose the final, unprocessed chunk of x for convenience
       ts.final_xchunk = _get_chunk(x, length - hp.chunk_size, hp.chunk_size)
     return ts
@@ -674,6 +679,7 @@ def make_transition_graph(state, transition, x=None, context=None,
     state.errors = _put_chunk(state.errors, state.i * hp.chunk_size,
                               [tf.not_equal(tf.nn.top_k(exhat)[1], tf.nn.top_k(target)[1])
                                for exhat, target in util.equizip(exhats, targets)])
+    state.exhats = _put_chunk(state.exhats, state.i * hp.chunk_size, exhats)
 
   state.i += 1
   return state

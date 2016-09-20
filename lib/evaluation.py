@@ -16,8 +16,15 @@ class Evaluator(object):
     ts.error = ts.seq.error
     return ts
 
-  def run(self, session, examples, max_step_count=None, hp=None):
-    aggregates = NS((key, util.MeanAggregate()) for key in "loss error".split())
+  def run(self, session, examples, max_step_count=None, hp=None, aggregates=None):
+    if aggregates is None:
+      aggregates = dict()
+    aggregates.setdefault("loss", util.MeanAggregate())
+    aggregates.setdefault("error", util.MeanAggregate())
+
+    tensors = self.tensors.Extract(key for key in aggregates.keys())
+    tensors.append(self.tensors.Extract("final_state.model"))
+
     state = NS(step=0, model=self.model.initial_state(hp.batch_size))
 
     try:
@@ -29,21 +36,22 @@ class Evaluator(object):
           x, = list(map(util.pad, util.equizip(*segment)))
           feed_dict = {self.tensors.x: x.T}
           feed_dict.update(self.model.feed_dict(state.model))
-          values = NS.FlatCall(ft.partial(session.run, feed_dict=feed_dict),
-                               self.tensors.Extract("loss error final_state.model"))
-          state.model = values.final_state.model
+          values = NS.FlatCall(ft.partial(session.run, feed_dict=feed_dict), tensors)
 
           for key in aggregates:
-            aggregates[key].add(values[key])
+            # FIXME Namespace should understand deep keys everywhere,
+            # then aggregates can be a Namespace, then all this will be easy.
+            aggregates[key].add(values.Get(key))
 
           sys.stderr.write(".")
+          state.model = values.final_state.model
           state.step += 1
     except StopIteration:
       pass
 
     sys.stderr.write("\n")
 
-    values = NS((key, aggregate.value) for key, aggregate in aggregates.Items())
+    values = NS((key, aggregate.value) for key, aggregate in aggregates.items())
     values.summaries = [tf.Summary.Value(tag="%s_valid" % key, simple_value=value)
                         for key, value in values.Items()]
 
