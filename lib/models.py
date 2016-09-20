@@ -199,7 +199,7 @@ class Stack(BaseModel):
     return NS(cells=[cell.initial_state(batch_size) for cell in self.cells])
 
   def get_output(self, state):
-    return self.cells[-1].get_output(state.cells[-1])
+    return tf.concat(1, [cell.get_output(cell_state) for cell, cell_state in zip(self.cells, state.cells)])
 
   def __call__(self, x, state, context=None):
     state = NS.Copy(state)
@@ -266,7 +266,7 @@ class Wayback(BaseModel):
     return NS(time=0, cells=[cell.initial_state(batch_size) for cell in self.cells])
 
   def get_output(self, state):
-    return self.cells[0].get_output(state.cells[0])
+    return tf.concat(1, [cell.get_output(cell_state) for cell, cell_state in zip(self.cells, state.cells)])
 
   def __call__(self, x, state, context=None):
     # construct the usual graph without unrolling
