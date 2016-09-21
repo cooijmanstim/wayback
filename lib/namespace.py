@@ -14,17 +14,63 @@ class Namespace(object):
   interfaces that require you to do that, and `UnflattenLike` allows you to
   restore the structure on the other end.
   """
-  def __init__(self, *args, **kwargs):
-    self.Data = odict(*args, **kwargs)
+  def __init__(self, items=(,), **kwargs):
+    self.Data = odict()
+    self.Update(items)
+    self.Update(kwargs)
 
-  def __getitem__(self, *args, **kwargs):
-    return self.Data.__getitem__(*args, **kwargs)
+  @staticmethod
+  def DesignatedKey(key):
+    if isinstance(key, basestring):
+      key = key.split(".")
+    else:
+      key = list(key)
+      assert all(isinstance(part, basestring) for part in key)
+    return key
 
-  def __setitem__(self, *args, **kwargs):
-    return self.Data.__setitem__(*args, **kwargs)
+  def __getitem__(self, key):
+    ancestor = self
+    for part in Namespace.DesignatedKey(key):
+      ancestor = ancestor.Data[part]
+    return value
 
-  def __contains__(self, *args, **kwargs):
-    return self.Data.__contains__(*args, **kwargs)
+  def __setitem__(self, key, value):
+    key = Namespace.DesignatedKey(key)
+    if not key:
+      raise KeyError("cannot replace self")
+    ancestor = self
+    for i, part in enumerate(key[:-1]):
+      if isinstance(ancestor, Namespace):
+        assert isinstance(part, basestring)
+        exists = part in ancestor
+      elif isinstance(ancestor, (tuple, list)):
+        assert isinstance(part, numbers.Integral)
+        exists = part < len(ancestor)
+      else:
+        raise KeyError("object at key exists and is opaque", key)
+      if part not in ancestor:
+        if isinstance(key[i + 1], basestring):
+          ancestor[part] = Namespace()
+        elif isinstance(key[i + 1], numbers.Integral):
+          ancestor[part] = []
+        else:
+          raise KeyError("invalid key type", key[i + 1])
+      ancestor = ancestor[part]
+    if isinstance(ancestor, Namespace):
+      ancestor[key[-1]] = value
+    elif isinstance(ancestor, (tuple, list)):
+      # lists are hairy; this will fail for out-of-order insertion
+      # TODO: implement our own sequence type -_-
+      assert len(ancestor) == key[-1]
+      ancestor.append(value)
+
+  def __contains__(self, key):
+    try:
+      self[key]
+    except KeyError:
+      return False
+    else:
+      return True
 
   def __getattr__(self, key):
     if key[0].isupper():
@@ -40,9 +86,7 @@ class Namespace(object):
     return self.Keys()
 
   def Keys(self):
-    for key in self.Data:
-      if not key[0].isupper():
-        yield key
+    return Namespace.DeepKeys(self)
 
   def Values(self):
     for key in self.Keys():
@@ -57,11 +101,11 @@ class Namespace(object):
       return False
     if self is other:
       return True
-    for key in self:
-      if key not in other or self[key] != other[key]:
+    for key in self.Data:
+      if key not in other.Data or self.Data[key] != other.Data[key]:
         return False
-    for key in other:
-      if key not in self or other[key] != self[key]:
+    for key in other.Data:
+      if key not in self.Data or other.Data[key] != self.Data[key]:
         return False
     return True
 
@@ -70,18 +114,15 @@ class Namespace(object):
 
   def AsDict(self):
     """Convert to an OrderedDict."""
-    other = odict()
-    for key in self:
-      other[key] = self[key]
-    return other
+    return odict(self.Data)
 
   def __repr__(self):
     return "Namespace(%s)" % ", ".join("%s=%s" % (key, repr(value))
-                                       for key, value in self.Items())
+                                       for key, value in self.Data.items())
 
   def __str__(self):
     return "{%s}" % ", ".join("%s: %s" % (key, str(value))
-                              for key, value in self.Items())
+                              for key, value in self.Data.items())
 
   def Update(self, other):
     """Update `self` with key-value pairs from `other`.
@@ -89,8 +130,16 @@ class Namespace(object):
     Args:
       other: Namespace or dict-like
     """
-    # python has a stinky manner of detecting dict-likes
-    self.Data.update(other.AsDict() if isinstance(other, Namespace) else other)
+    if isinstance(other, Namespace):
+      for key, value in other.Items():
+        self[key] = value
+    elif hasattr(other, "keys"): # dict
+      for key, value in other.items():
+        self[key] = value
+    else:
+      # sequence of pairs
+      for key, value in other:
+        self[key] = value
 
   def Extract(self, *keyss):
     """Extract a subnamespace from `self` with the given keys.
@@ -115,47 +164,13 @@ class Namespace(object):
     Returns:
       The narrowed-down namespace.
     """
-    other = Namespace()
-    for keys in keyss:
-      for key in keys.split():
-        trail = key.split(".")
-        if len(trail) == 1:
-          other[trail[0]] = self[trail[0]]
-        else:
-          # get fancy: extract members from nested namespaces
-          if trail[0] not in other:
-            other[trail[0]] = Namespace()
-          other[trail[0]].Update(self[trail[0]].Extract(".".join(trail[1:])))
-    return other
+    return Namespace((Namespace.DesignatedKey(k), self[key]) for ks in keys for k in ks.split())
 
-  def Get(self, path, default=None):
-    """Get an object from a Namespace tree.
-
-    This is analogous to the `get` method on dicts, which does not raise
-    KeyError if the key is not in the dict but rather returns a default value
-    provided by the caller. This method performs a chain of lookups in a
-    Namespace tree, returning the provided default if any of the lookups
-    triggers a KeyError. For example:
-
-      ns = Namespace(x=Namespace(y=1, z=Namespace()))
-      assert ns.x.y == 1
-      assert ns.Get("x.y") == 1
-      assert ns.Get("x.z.w", None) == None
-
-    Args:
-      path: the path to the object.
-      default: the value to return if the path does not exist.
-
-    Returns:
-      The object or `default`.
-    """
-    obj = self
-    for key in path.split("."):
-      try:
-        obj = obj.Data[key]
-      except KeyError:
-        return default
-    return obj
+  def Get(self, key, default=None):
+    try:
+      return self[key]
+    except KeyError:
+      return default
 
   @staticmethod
   def Flatten(x):
@@ -180,7 +195,7 @@ class Namespace(object):
     if isinstance(x, (tuple, list)):
       return list(it.chain.from_iterable(map(Namespace.Flatten, x)))
     elif isinstance(x, Namespace):
-      return list(it.chain.from_iterable(Namespace.Flatten(x[key]) for key in x))
+      return list(it.chain.from_iterable(Namespace.Flatten(x.Data[key]) for key in x.Data))
     else:
       return [x]
 
@@ -210,7 +225,7 @@ class Namespace(object):
           yform.append(yelt)
       elif isinstance(xform, Namespace):
         yform = Namespace()
-        for key in xform:
+        for key in xform.Data:
           yelt, yflat = _UnflattenLike(xform[key], yflat)
           yform[key] = yelt
       else:
@@ -257,17 +272,17 @@ class Namespace(object):
     return Namespace.UnflattenLike(tree, fn(Namespace.Flatten(tree)))
 
   @staticmethod
-  def FlatZip(trees, path=None):
+  def FlatZip(trees, key=None):
     """Zip values from multiple Namespace trees.
 
-    Narrows each of the `trees` to `path` if given, then flattens each tree
+    Narrows each of the `trees` to `key` if given, then flattens each tree
     and zips it up.  Example:
 
         mapping = dict(FlatZip([keys, values]))
 
     Args:
       trees: the Namespace trees to zip.
-      path: the path to which to narrow the trees.
+      key: optional key to narrow all trees to a common subtree
 
     Raises:
       ValueError: if the `trees` are not isomorphic and `path` is not given.
@@ -323,7 +338,7 @@ class Namespace(object):
         for subkey in Namespace.DeepKeys(subtree):
           yield (i,) + subkey
     elif isinstance(tree, Namespace):
-      for key, subtree in tree.Items():
+      for key, subtree in tree.Data.items():
         for subkey in Namespace.DeepKeys(subtree):
           yield (key,) + subkey
     else:
