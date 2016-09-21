@@ -79,54 +79,61 @@ def main(argv):
   best_saver = tf.train.Saver()
   supervisor = tf.train.Supervisor(logdir=output_dir, summary_op=None)
   session = supervisor.PrepareSession()
+
+  tracking = NS(best_loss=None, reset_time=0)
+
+  def track(loss, step):
+    if step % FLAGS.tracking_interval == 0:
+      if tracking.best_loss is None or loss < tracking.best_loss:
+        tracking.best_loss = loss
+        tracking.reset_time = step
+        best_saver.save(session,
+                        os.path.join(os.path.dirname(supervisor.save_path),
+                                     "best_%i_%s.ckpt" % (step, loss)),
+                        global_step=supervisor.global_step)
+      elif step - tracking.reset_time > hp.decay_patience:
+        session.run(trainer.tensors.decay_op)
+        tracking.reset_time = step
+
+  def maybe_validate(state):
+    if state.global_step % FLAGS.validation_interval == 0:
+      # extract final exhats and losses for debugging
+      aggregates = dict((key, util.LastAggregate()) for key in "final_state.exhats final_state.losses".split())
+      values = evaluator.run(examples=dataset.examples.valid, session=session, hp=hp,
+                             aggregates=aggregates,
+                             # don't spend too much time evaluating
+                             max_step_count=FLAGS.validation_interval // 3)
+      supervisor.summary_computed(session, tf.Summary(value=values.summaries))
+      if True:
+        np.savez_compressed(os.path.join(os.path.dirname(supervisor.save_path),
+                                         "xhats_%i.npz" % state.global_step),
+                            xs=values.final_x,
+                            exhats=values.final_state.exhats,
+                            losses=values.final_state.losses)
+      # don't track validation loss (we're trying to overfit)
+      # track(values.loss, state.global_step)
+
+  def maybe_stop(_):
+    if supervisor.ShouldStop():
+      raise StopTraining()
+
+  def before_step_hook(state):
+    maybe_validate(state)
+    maybe_stop(state)
+
+  def after_step_hook(state, values):
+    for summary in values.summaries:
+      supervisor.summary_computed(session, summary)
+    # decay learning rate based on training loss (we're trying to overfit)
+    track(values.loss, state.global_step)
+
+  print "training."
   try:
-    tracking = NS(best_loss=None, reset_time=0)
-
-    def track(loss, step):
-      if step % FLAGS.tracking_interval == 0:
-        if tracking.best_loss is None or loss < tracking.best_loss:
-          tracking.best_loss = loss
-          tracking.reset_time = step
-          best_saver.save(session,
-                          os.path.join(os.path.dirname(supervisor.save_path),
-                                       "best_%i_%s.ckpt" % (step, loss)),
-                          global_step=supervisor.global_step)
-        elif step - tracking.reset_time > hp.decay_patience:
-          session.run(trainer.tensors.decay_op)
-          tracking.reset_time = step
-
-    def maybe_validate(state):
-      if state.global_step % FLAGS.validation_interval == 0:
-        values = evaluator.run(examples=dataset.examples.valid, session=session, hp=hp,
-                               # don't spend too much time evaluating
-                               max_step_count=FLAGS.validation_interval // 3)
-        supervisor.summary_computed(session, tf.Summary(value=values.summaries))
-        # don't track validation loss (we're trying to overfit)
-        # track(values.loss, state.global_step)
-
-    def maybe_stop(_):
-      if supervisor.ShouldStop():
-        raise StopTraining()
-
-    def before_step_hook(state):
-      maybe_validate(state)
-      maybe_stop(state)
-
-    def after_step_hook(state, values):
-      for summary in values.summaries:
-        supervisor.summary_computed(session, summary)
-      # decay learning rate based on training loss (we're trying to overfit)
-      track(values.loss, state.global_step)
-
-    print "training."
-    try:
-      trainer.run(examples=dataset.examples.train[:FLAGS.max_examples],
-                  session=session, hp=hp, max_step_count=FLAGS.max_step_count,
-                  hooks=NS(step=NS(before=before_step_hook, after=after_step_hook)))
-    except StopTraining:
-      pass
-  finally:
-    supervisor.Stop()
+    trainer.run(examples=dataset.examples.train[:FLAGS.max_examples],
+                session=session, hp=hp, max_step_count=FLAGS.max_step_count,
+                hooks=NS(step=NS(before=before_step_hook, after=after_step_hook)))
+  except StopTraining:
+    pass
 
 if __name__ == "__main__":
   tf.app.run()

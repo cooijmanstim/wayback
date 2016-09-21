@@ -52,9 +52,9 @@ class Evaluator(object):
     sys.stderr.write("\n")
 
     values = NS((key, aggregate.value) for key, aggregate in aggregates.items())
-    values.summaries = [tf.Summary.Value(tag="%s_valid" % key, simple_value=value)
-                        for key, value in values.Items()]
 
+    values.summaries = [tf.Summary.Value(tag="%s_valid" % key, simple_value=values[key])
+                        for key in "loss error".split()]
     print "### evaluation loss %6.5f error %6.5f" % (values.loss, values.error)
 
     if np.isnan(values.loss):
