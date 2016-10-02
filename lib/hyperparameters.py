@@ -44,7 +44,7 @@ def get_defaults(**overrides):
   Returns:
     A Namespace with (possibly overridden) defaults.
   """
-  hp = NS((name, hyperparameter.default) for name, hyperparameter in schema.Items())
+  hp = NS((name, hyperparameter.default) for name, hyperparameter in schema.AsDict().items())
   for name, value in overrides.items():
     if name not in hp:
       raise ValueError("value provided for nonexistent hyperparameter %s" % name)

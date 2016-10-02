@@ -1,4 +1,5 @@
 from collections import OrderedDict as odict
+import numbers
 import itertools as it
 
 class Namespace(object):
@@ -14,7 +15,7 @@ class Namespace(object):
   interfaces that require you to do that, and `UnflattenLike` allows you to
   restore the structure on the other end.
   """
-  def __init__(self, items=(,), **kwargs):
+  def __init__(self, items=(), **kwargs):
     self.Data = odict()
     self.Update(items)
     self.Update(kwargs)
@@ -25,19 +26,40 @@ class Namespace(object):
       key = key.split(".")
     else:
       key = list(key)
-      assert all(isinstance(part, basestring) for part in key)
+      assert all(isinstance(part, (basestring, numbers.Integral)) for part in key)
     return key
 
   def __getitem__(self, key):
     ancestor = self
     for part in Namespace.DesignatedKey(key):
-      ancestor = ancestor.Data[part]
-    return value
+      if isinstance(ancestor, Namespace):
+        ancestor = ancestor.Data[part]
+      else:
+        ancestor = ancestor[part]
+    return ancestor
+
+  @staticmethod
+  def ShallowSetItem(tree, key, value):
+    if isinstance(tree, Namespace):
+      tree.Data[key] = value
+    # sequences are hairy :-( consider implementing our own
+    elif isinstance(tree, list):
+      if len(tree) > key:
+        tree[key] = value
+      elif len(tree) == key:
+        tree.append(value)
+      else:
+        raise IndexError(key)
+    elif isinstance(tree, tuple):
+      raise ValueError("cannot set tuple item")
+    else:
+      raise ValueError("cannot index into opaque object", tree)
 
   def __setitem__(self, key, value):
     key = Namespace.DesignatedKey(key)
     if not key:
       raise KeyError("cannot replace self")
+
     ancestor = self
     for i, part in enumerate(key[:-1]):
       if isinstance(ancestor, Namespace):
@@ -47,22 +69,19 @@ class Namespace(object):
         assert isinstance(part, numbers.Integral)
         exists = part < len(ancestor)
       else:
-        raise KeyError("object at key exists and is opaque", key)
-      if part not in ancestor:
+        raise KeyError("cannot descend into Namespace leaf node", key[:i+1])
+
+      if not exists:
         if isinstance(key[i + 1], basestring):
-          ancestor[part] = Namespace()
+          Namespace.ShallowSetItem(ancestor, part, Namespace())
         elif isinstance(key[i + 1], numbers.Integral):
-          ancestor[part] = []
+          Namespace.ShallowSetItem(ancestor, part, [])
         else:
           raise KeyError("invalid key type", key[i + 1])
+
       ancestor = ancestor[part]
-    if isinstance(ancestor, Namespace):
-      ancestor[key[-1]] = value
-    elif isinstance(ancestor, (tuple, list)):
-      # lists are hairy; this will fail for out-of-order insertion
-      # TODO: implement our own sequence type -_-
-      assert len(ancestor) == key[-1]
-      ancestor.append(value)
+
+    Namespace.ShallowSetItem(ancestor, key[-1], value)
 
   def __contains__(self, key):
     try:
@@ -80,7 +99,8 @@ class Namespace(object):
   def __setattr__(self, key, value):
     if key[0].isupper():
       self.__dict__[key] = value
-    self.Data[key] = value
+    else:
+      self.Data[key] = value
 
   def __iter__(self):
     return self.Keys()
@@ -141,30 +161,36 @@ class Namespace(object):
       for key, value in other:
         self[key] = value
 
-  def Extract(self, *keyss):
+  def Extract(self, *keys):
     """Extract a subnamespace from `self` with the given keys.
 
-    Each of `keyss` is expected to be a string containing space-separated key
-    expressions. A key expression can be either a single key or a chain of keys
-    for direct access to nested Namespaces. E.g.:
+    For example:
 
-        Namespace(v=2, w=Namespace(x=1, y=Namespace(z=0)))._extract("w.y v")
+        Namespace(v=2, w=Namespace(u=3, x=1, y=Namespace(z=0)))._extract("w.y v", ("w", "x")))
 
     would return
 
-        Namespace(w=Namespace(y=Namespace(z=0)), v=2)
+        Namespace(w=Namespace(x=1, y=Namespace(z=0)), v=2)
 
-    The returned object is a Namespace with the same structure as `self`, except
-    that each Namespace contained to it is narrowed to the selected keys.
+    The returned object is a Namespace with the same structure as `self`, but
+    narrowed to the selected keys.
 
     Args:
-      *keyss: A sequence of strings each containing space-separated key
-              expressions.
+      *keys: the keys to extract; each can be either a designated key or,
+          for convenience, a string of space-separated key expressions.
 
     Returns:
       The narrowed-down namespace.
     """
-    return Namespace((Namespace.DesignatedKey(k), self[key]) for ks in keys for k in ks.split())
+    def DesignatedKeyset(keyset):
+      if isinstance(keyset, basestring):
+        return keyset.split()
+      elif isinstance(keyset, (tuple, list)):
+        return [keyset]
+      else:
+        raise ValueError("invalid keyset designator", keyset)
+    return Namespace((Namespace.DesignatedKey(key), self[key])
+                     for keyset in keys for key in DesignatedKeyset(keyset))
 
   def Get(self, key, default=None):
     try:
@@ -285,14 +311,14 @@ class Namespace(object):
       key: optional key to narrow all trees to a common subtree
 
     Raises:
-      ValueError: if the `trees` are not isomorphic and `path` is not given.
+      ValueError: if the `trees` (or their subtrees at `key`) are not isomorphic.
 
     Returns:
       An iterator over tuples with corresponding elements from `trees`.
     """
     trees = list(trees)
-    if path:
-      trees = [Namespace.Extract(tree, path) for tree in trees]
+    if key:
+      trees = [Namespace.Extract(tree, key) for tree in trees]
     if not Namespace.Isomorphic(*trees):
       raise ValueError("Trees not isomorphic")
     return zip(*list(map(Namespace.Flatten, trees)))

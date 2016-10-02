@@ -13,17 +13,23 @@ class NamespaceTest(unittest.TestCase):
     ns["x"] = 3
     ns.x = 1
     ns.y = NS(z=2)
-    self.assertEqual(list(ns), ["w", "x", "y"])
-    self.assertEqual(list(ns.Keys()), ["w", "x", "y"])
-    self.assertEqual(list(ns.Values()), [0, 1, NS(z=2)])
-    self.assertEqual(list(ns.Items()), [("w", 0), ("x", 1), ("y", NS(z=2))])
+    self.assertEqual(list(ns.Keys()), [("w",), ("x",), ("y", "z")])
+    self.assertEqual(list(ns.Values()), [0, 1, 2])
+    self.assertEqual(list(ns.Items()), [(("w",), 0), (("x",), 1), (("y", "z"), 2)])
     self.assertEqual(ns.AsDict(), OrderedDict([("w", 0), ("x", 1), ("y", NS(z=2))]))
     ns.Update(ns.y)
-    self.assertEqual(list(ns), ["w", "x", "y", "z"])
-    self.assertEqual(list(ns.Keys()), ["w", "x", "y", "z"])
-    self.assertEqual(list(ns.Values()), [0, 1, NS(z=2), 2])
-    self.assertEqual(list(ns.Items()), [("w", 0), ("x", 1), ("y", NS(z=2)), ("z", 2)])
+    self.assertEqual(list(ns), [("w",), ("x",), ("y", "z"), ("z",)])
+    self.assertEqual(list(ns.Keys()), [("w",), ("x",), ("y", "z"), ("z",)])
+    self.assertEqual(list(ns.Values()), [0, 1, 2, 2])
+    self.assertEqual(list(ns.Items()), [(("w",), 0), (("x",), 1), (("y", "z"), 2), (("z",), 2)])
     self.assertEqual(ns.AsDict(), OrderedDict([("w", 0), ("x", 1), ("y", NS(z=2)), ("z", 2)]))
+
+    ns = NS(v=2, w=NS(x=1, y=[3, NS(z=0)]))
+    self.assertItemsEqual([("v",),
+                           ("w", "x"),
+                           ("w", "y", 0),
+                           ("w", "y", 1, "z")],
+                          list(ns.Keys()))
 
   def testExtract(self):
     ns = NS(v=2, w=NS(x=1, y=NS(z=0))).Extract("w.y v")
@@ -63,14 +69,6 @@ class NamespaceTest(unittest.TestCase):
     self.assertRaises(ValueError, lambda: NS.FlatZip([before, after]))
     self.assertItemsEqual([(2, 4), (0, 0)],
                           list(NS.FlatZip([before, after], "v w.y.z")))
-
-  def testDeepKeys(self):
-    ns = NS(v=2, w=NS(x=1, y=[3, NS(z=0)]))
-    self.assertItemsEqual([("v",),
-                           ("w", "x"),
-                           ("w", "y", 0),
-                           ("w", "y", 1, "z")],
-                          list(NS.DeepKeys(ns)))
 
 if __name__ == "__main__":
   unittest.main()

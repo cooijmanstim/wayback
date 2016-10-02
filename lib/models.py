@@ -615,14 +615,18 @@ def _make_sequence_graph(transition=None, model_state=None, x=None,
                               loop_vars=state,
                               back_prop=back_prop)
 
+    # pack TensorArrays
+    for key in "exhats xhats losses errors".split():
+      if key in state:
+        state[key] = state[key].pack()
+
     ts = NS()
     ts.final_state = state
-    full_xhat = state.xhats.pack()
-    ts.xhat = full_xhat[hp.chunk_size:, :]
-    ts.final_xhatchunk = _get_chunk(full_xhat, length - hp.chunk_size, hp.chunk_size)
+    ts.xhat = state.xhats[hp.chunk_size:, :]
+    ts.final_xhatchunk = _get_chunk(state.xhats, length - hp.chunk_size, hp.chunk_size)
     if x is not None:
-      ts.loss = tf.reduce_mean(state.losses.pack())
-      ts.error = tf.reduce_mean(tf.to_float(state.errors.pack()))
+      ts.loss = tf.reduce_mean(state.losses)
+      ts.error = tf.reduce_mean(tf.to_float(state.errors))
       ts.final_x = x
       # expose the final, unprocessed chunk of x for convenience
       ts.final_xchunk = _get_chunk(x, length - hp.chunk_size, hp.chunk_size)

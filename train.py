@@ -1,4 +1,4 @@
-import os, tensorflow as tf
+import os, tensorflow as tf, numpy as np
 
 from lib.namespace import Namespace as NS
 import lib.evaluation as evaluation
@@ -6,6 +6,7 @@ import lib.hyperparameters as hyperparameters
 import lib.models as models
 import lib.training as training
 import lib.datasets as datasets
+import lib.util as util
 
 FLAGS = tf.flags.FLAGS
 tf.flags.DEFINE_string("base_output_dir", "/tmp/models", "output directory where models should be stored")
@@ -98,7 +99,7 @@ def main(argv):
   def maybe_validate(state):
     if state.global_step % FLAGS.validation_interval == 0:
       # extract final exhats and losses for debugging
-      aggregates = dict((key, util.LastAggregate()) for key in "final_state.exhats final_state.losses".split())
+      aggregates = dict((key, util.LastAggregate()) for key in "seq.final_x final_state.exhats final_state.losses".split())
       values = evaluator.run(examples=dataset.examples.valid, session=session, hp=hp,
                              aggregates=aggregates,
                              # don't spend too much time evaluating
@@ -107,11 +108,12 @@ def main(argv):
       if True:
         np.savez_compressed(os.path.join(os.path.dirname(supervisor.save_path),
                                          "xhats_%i.npz" % state.global_step),
-                            xs=values.final_x,
-                            exhats=values.final_state.exhats,
-                            losses=values.final_state.losses)
-      # don't track validation loss (we're trying to overfit)
-      # track(values.loss, state.global_step)
+                            # i'm sure we'll get the idea from 100 steps of 10 examples
+                            xs=values.seq.final_x[:100, :10],
+                            exhats=values.final_state.exhats[:100, :10],
+                            losses=values.final_state.losses[:100, :10])
+      # track validation loss
+      track(values.loss, state.global_step)
 
   def maybe_stop(_):
     if supervisor.ShouldStop():
