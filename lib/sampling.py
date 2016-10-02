@@ -35,7 +35,7 @@ class Sampler(object):
 
     state = NS(model=self.model.initial_state(batch_size))
     for segment in util.segments(primers, segment_length, overlap=hp.chunk_size):
-      x, = list(map(util.pad, util.equizip(*segment)))
+      x, = util.examples_as_arrays(segment)
       feed_dict = {self.tensors.x: x.T}
       feed_dict.update(self.model.feed_dict(state.model))
       values = NS.FlatCall(ft.partial(session.run, feed_dict=feed_dict),

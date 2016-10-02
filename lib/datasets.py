@@ -2,6 +2,65 @@ import glob, os, audioop, wave, numpy as np, tensorflow as tf
 import scipy.io.wavfile as wavfile
 from lib.namespace import Namespace as NS
 
+# examples consist of zero or more "features" (e.g. x and y), each of
+# which is a numpy array.  the first axis of each feature is treated
+# as the time axis.
+class Example(object):
+  def __init__(self, features=()):
+    self.features = features
+
+  @property
+  def features(self):
+    return self._features
+
+  @features.setter
+  def features(self, features):
+    if not all(feature.shape[0] == features[0].shape[0] for feature in features):
+      raise ValueError("all features must have the same length")
+    self._features = tuple(features)
+
+  def __getitem__(self, index):
+    return Example(features=tuple(feature[index] for feature in self.features))
+
+  def __len__(self):
+    return self.features[0].shape[0]
+
+  def render(self):
+    return self
+
+  def with_offset(self, offset):
+    return OffsetExample(self.features, offset)
+
+  def map(self, fn):
+    return Example(map(fn, self.features))
+
+# some datasets consist of a single long sequence, from which we will
+# want to derive many sequences by randomly translating them (with
+# wraparound). OffsetExample allows us to represent the translation
+# implicitly, deferring the copy to reduce memory use.
+class OffsetExample(Example):
+  def __init__(self, features=(), offset=0):
+    super(OffsetExample, self).__init__(features)
+    self.offset = offset
+
+  def __getitem__(self, index):
+    if isinstance(index, slice):
+      # :-(
+      index = list(range(*index.indices(len(self))))
+    index = np.asarray(index)
+    index += self.offset
+    index %= len(self)
+    return super(OffsetExample, self).__getitem__(index)
+
+  # warning: below methods necessarily make copies, and return plain
+  # Examples as a result.
+  def map(self, fn):
+    return self.render().map(fn)
+
+  def render(self, fn):
+    return Example([np.roll(feature, -self.offset, axis=0)
+                    for feature in self.features])
+
 def construct(data_type, paths=None, directory=None, **kwargs):
   klass = dict(wave=Wave, bytes=Bytes, enwik8=Enwik8, linux=Linux)[data_type]
   return klass(paths=paths, directory=directory, **kwargs)
@@ -39,7 +98,7 @@ class Bytes(Dataset):
                              for path in NS.Flatten(paths)])
 
   def dump(self, base_path, example):
-    sequence, = example
+    sequence, = example.features
     with open("%s%s" % (base_path, self.filename_suffix), "wb") as outfile:
       outfile.write(sequence)
 
@@ -55,11 +114,11 @@ class RestrictedBytes(Bytes):
     bytemap = np.zeros((2**8,), dtype=np.int32)
     bytemap[list(map(ord, self.vocab))] = np.arange(len(self.vocab))
     return NS.UnflattenLike(paths,
-                            [[bytemap[list(map(ord, open(path, "rb").read()))]]
+                            [Example([bytemap[list(map(ord, open(path, "rb").read()))]])
                              for path in NS.Flatten(paths)])
 
   def dump(self, base_path, example):
-    sequence, = example
+    sequence, = example.features
     with open("%s%s" % (base_path, self.filename_suffix), "wb") as outfile:
       outfile.write(sequence)
 
@@ -125,7 +184,7 @@ class Wave(Dataset):
     Returns:
       Isomorphic Namespace tree with waveform examples.
     """
-    return NS.UnflattenLike(paths, [[self.load_wavfile(path)] for path in NS.Flatten(paths)])
+    return NS.UnflattenLike(paths, [Example([self.load_wavfile(path)]) for path in NS.Flatten(paths)])
 
   def dump(self, base_path, example):
     """Dump a single example.
@@ -134,7 +193,7 @@ class Wave(Dataset):
       base_path: the path of the file to write (without extension)
       example: the waveform example to write
     """
-    sequence, = example
+    sequence, = example.features
     self.dump_wavfile("%s.wav" % base_path, sequence)
 
   def load_wavfile(self, path):

@@ -33,7 +33,7 @@ class Evaluator(object):
           if max_step_count is not None and state.step >= max_step_count:
             raise StopIteration()
 
-          x, = list(map(util.pad, util.equizip(*segment)))
+          x, = util.examples_as_arrays(segment)
           feed_dict = {self.tensors.x: x.T}
           feed_dict.update(self.model.feed_dict(state.model))
           values = NS.FlatCall(ft.partial(session.run, feed_dict=feed_dict), tensors)

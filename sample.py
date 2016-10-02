@@ -19,15 +19,15 @@ def preprocess_primers(examples, hp):
   min_batch_size = 16
   if len(examples) < min_batch_size:
     k = min_batch_size // len(examples)
-    examples.extend(derivation
+    examples.extend(example.with_offset(offset)
                     for example in examples
-                    for derivation in util.augment_by_random_translations(example, num_examples=k))
+                    for offset in np.random.choice(len(example), size=[k], replace=False))
 
   # maybe augment number of time steps to ensure util.segments doesn't discard
   # anything at the ends of the examples. this is done by left-padding the
   # shorter examples with repetitions.
-  max_len = max(len(wav) for wav, in examples)
-  examples = [[np.pad(wav, [(max_len - len(wav), 0)], mode="wrap")]
+  max_len = max(map(len, examples))
+  examples = [example.map(lambda feature: np.pad(feature, [(max_len - len(feature), 0)], mode="wrap"))
               for wav, in examples]
 
   # time is tight; condition on 3 seconds of the wav files only
@@ -68,7 +68,7 @@ def main(argv):
 
   sample_length = hp.sampling_frequency * FLAGS.sample_duration
   xhat = sampler.run(primers=primers, length=sample_length, temperature=FLAGS.temperature, session=session, hp=hp)
-  x, = list(map(util.pad, util.equizip(*primers)))
+  x, = util.examples_as_arrays(primers)
 
   for i, (p, s) in enumerate(util.equizip(x, xhat)):
     output_path = FLAGS.base_output_path + "temp_%s_%i" % (FLAGS.temperature, i)

@@ -22,59 +22,6 @@ def equizip(*iterables):
     else:
       raise ValueError("Sequences must have equal length")
 
-def augment_by_random_translations(features, num_examples=1):
-  """Augment a sequence data point by random circular shifts.
-
-  Args:
-    features: list of numpy arrays
-      The features that make up the data point.
-    num_examples: int
-      The number of data points to generate.
-
-  Raises:
-    ValueError: If the features differ in length along the first axis.
-
-  Returns:
-    The generated data points, as a list of lists of features.
-  """
-  if not all(feature.shape[0] == features[0].shape[0] for feature in features):
-    raise ValueError("Features must have equal length along first axis.")
-
-  length = features[0].shape[0]
-  offsets = np.random.choice(length, size=[num_examples], replace=False)
-  examples = [[np.roll(feature, -offset, axis=0)
-               for feature in features]
-              for offset in offsets]
-  return examples
-
-def augment_by_slicing(features, num_examples):
-  """Augment a sequence data point by slicing it into disjoint examples.
-
-  Args:
-    features: list of numpy arrays
-      The features that make up the data point.
-    num_examples: int
-      The number of data points to generate.
-
-  Raises:
-    ValueError: If the features differ in length along the first axis.
-
-  Returns:
-    The generated data points, as a list of lists of features.
-  """
-  if not all(feature.shape[0] == features[0].shape[0] for feature in features):
-    raise ValueError("Features must have equal length along first axis.")
-
-  length = features[0].shape[0]
-  slice_length = length // num_examples
-  new_length = num_examples * slice_length
-
-  if new_length < length:
-    logging.warning("losing %d elements to augment_by_slicing", length - new_length)
-
-  return list(zip(*[feature[:new_length].reshape((num_examples, slice_length))
-                    for feature in features]))
-
 def batches(examples, batch_size, augment=True):
   """Generate randomly chosen batches of examples.
 
@@ -105,9 +52,9 @@ def batches(examples, batch_size, augment=True):
     # batch worth of examples. The originals are discarded; if the augmentation
     # is sensible in the first place then using the originals introduces a bias.
     k = int(np.ceil(batch_size / float(len(examples))))
-    examples = [derivation
+    examples = [example.with_offset(offset)
                 for example in examples
-                for derivation in augment_by_random_translations(example, num_examples=k)]
+                for offset in np.random.choice(len(example), size=[k], replace=False)]
 
   np.random.shuffle(examples)
   for i in range(0, len(examples), batch_size):
@@ -144,32 +91,25 @@ def segments(examples, segment_length, overlap=0, truncate=True):
   """
   whichever = 0
 
-  # examples[i][j] is the jth feature of the ith example
-  # all features of an example must have the same length:
-  if not all(len(examples[i][j]) == len(examples[i][whichever])
-             for i, _ in enumerate(examples)
-             for j, _ in enumerate(examples[i])):
-    raise ValueError("All features of an example must have the same length.")
-  # examples[i] and examples[j] must have the same set of features;
-  # the same number of features:
-  if not all(len(examples[i]) == len(examples[whichever])
+  # examples[i] and examples[j] must have the same number of features:
+  if not all(len(examples[i].features) == len(examples[whichever].features)
              for i, _ in enumerate(examples)):
     raise ValueError("All examples must have the same set of features.")
   # and their shapes must be the same except for length:
-  if not all(examples[i][k].shape[1:] == examples[whichever][k].shape[1:]
+  if not all(examples[i].features[k].shape[1:] == examples[whichever].features[k].shape[1:]
              for i, _ in enumerate(examples)
              for k, _ in enumerate(examples[i])):
     raise ValueError("All examples must have the same set of features.")
 
-  min_length = min(len(example[whichever]) for example in examples)
-  max_length = max(len(example[whichever]) for example in examples)
+  min_length = min(len(example) for example in examples)
+  max_length = max(len(example) for example in examples)
   max_offset = min_length - segment_length if truncate else max_length - overlap
   for offset in range(0, max_offset + 1, segment_length - overlap):
-    # segments[i][j] is a segment of the jth feature of the ith example
-    segment = [[feature[offset:offset + segment_length]
-                for feature in features]
-               for features in examples]
-    yield segment
+    yield [example[offset:offset + segment_length] for example in examples]
+
+def examples_as_arrays(examples):
+  return [pad(feature) for feature in
+          equizip(*[example.render().features for example in examples])]
 
 def pad(xs):
   """Zero-pad a list of variable-length numpy arrays.
