@@ -443,12 +443,11 @@ class Wayback(BaseModel):
 
     # i suspect ugly gradient biases may occur if gradients are truncated
     # somewhere halfway through the cycle. ensure we start at a cycle boundary.
-    chunk_size = hp.chunk_size
     outer_alignment_assertion = tf.Assert(tf.equal(state.model.time, 0), [state.model.time], name="outer_alignment_assertion")
     with tf.control_dependencies([outer_alignment_assertion]):
       state.model.time = tf.identity(state.model.time)
     # ensure we end at a cycle boundary too.
-    assert (length - chunk_size) % (self.period * chunk_size) == 0
+    assert (length - hp.chunk_size) % (self.period * hp.chunk_size) == 0
 
     inner_period = int(np.prod(hp.periods[self.inner_slice]))
 
@@ -457,14 +456,14 @@ class Wayback(BaseModel):
     # and with the unit being the layer's period.  note that due to
     # the dynamic unrolling of the inner graph, the inner layers
     # necessarily get truncated at the topmost inner layer's boundary.
-    boundaries = [length - 1 - hp.boundaries[i] * int(np.prod(hp.periods[:i + 1]))
+    boundaries = [length - hp.chunk_size - hp.boundaries[i] * int(np.prod(hp.periods[:i + 1]))
                   for i in range(len(hp.periods))]
-    assert all(0 <= boundary and boundary < length for boundary in boundaries)
+    assert all(0 <= boundary and boundary * hp.chunk_size < length - hp.chunk_size for boundary in boundaries)
     assert boundaries == list(reversed(sorted(boundaries)))
 
-    print "length %s periods %s boundaries %s %s" % (length, hp.periods, hp.boundaries, boundaries)
+    print "chunky length %s periods %s boundaries %s %s inner period %s" % (length / hp.chunk_size, hp.periods, hp.boundaries, boundaries, inner_period)
 
-    outer_step_count = length // (chunk_size * inner_period)
+    outer_step_count = length // (hp.chunk_size * inner_period)
     for outer_time in range(outer_step_count):
       if outer_time > 0:
         tf.get_variable_scope().reuse_variables()
@@ -486,8 +485,8 @@ class Wayback(BaseModel):
       if x is None:
         inner_x = None
       else:
-        start = inner_period * chunk_size * outer_time
-        stop = inner_period * chunk_size * (outer_time + 1) + chunk_size
+        start = inner_period * hp.chunk_size * outer_time
+        stop = inner_period * hp.chunk_size * (outer_time + 1) + hp.chunk_size
         inner_x = x[start:stop, :]
 
       # grab a copy of the outer states. they will not be updated in the inner
@@ -540,8 +539,9 @@ class Wayback(BaseModel):
     if x is not None:
       ts.final_x = state.final_x
       ts.final_xchunk = state.final_xchunk
-      ts.loss = tf.concat(0, state.losses)
-      ts.error = tf.concat(0, state.errors)
+      # inner means are all on the same sample size, so taking their mean is valid
+      ts.loss = tf.reduce_mean(state.losses)
+      ts.error = tf.reduce_mean(state.errors)
     return ts
 
 def _make_sequence_graph(transition=None, model_state=None, x=None,
