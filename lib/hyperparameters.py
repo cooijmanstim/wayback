@@ -23,10 +23,11 @@ schema = NS(
         chunk_size=("number of samples per model step", 1),
         layout=("recurrent connection pattern (stack/wayback)", "stack"),
         cell=("recurrent cell (rnn/lstm/gru)", "lstm"),
-        periods=("update interval for each layer, from bottom to top. only used for the wayback layout", [1000]),
         layer_sizes=("number of hidden units in each layer, from bottom to top.", [1000]),
         vskip=("vertical skip connections between all layers", False),
 
+        periods=("update interval for each layer, from bottom to top. only used for the wayback layout", [1000]),
+        boundaries=("number of periods to backprop through for each layer, from bottom to top. only used for the wayback layout", [1]),
         unroll_layer_count=("number of upper layers to move outside the while loop. only used for the wayback layout", 0),
         carry=("whether to carry state between cycles or restart based on context. only used for the wayback layout", True)
     ).items())

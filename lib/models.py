@@ -245,8 +245,10 @@ class Wayback(BaseModel):
     """
     super(Wayback, self).__init__(hp)
 
-    if len(cells_) != len(self.hp.periods):
+    if len(self.hp.periods) != len(cells_):
       raise ValueError("must specify one period for each cell")
+    if len(self.hp.boundaries) != len(cells_):
+      raise ValueError("must specify one boundary for each cell")
     self.cells = list(cells_)
 
     cutoff = len(cells_) - self.hp.unroll_layer_count
@@ -306,15 +308,6 @@ class Wayback(BaseModel):
     def _is_due(i):
       countdown = time % np.prod(hp.periods[:i])
       return tf.equal(countdown, 0) if symbolic else countdown == 0
-
-    if not symbolic:
-      # Make a pass over all cells to disconnect gradient on the states of those
-      # that just completed a cycle. They should be considered constant for both
-      # the edge going up to the layer above and the edge going rightward for
-      # the next step of the same layer.
-      for i in range(len(cells_)):
-        if i != 0 and _is_due(i):
-          cell_states[i - 1] = list(map(tf.stop_gradient, cell_states[i - 1]))
 
     subset = list(range(len(cells_))) if subset is None else subset
     for i in reversed(sorted(subset)):
@@ -458,17 +451,32 @@ class Wayback(BaseModel):
     assert (length - chunk_size) % (self.period * chunk_size) == 0
 
     inner_period = int(np.prod(hp.periods[self.inner_slice]))
+
+    # determine truncation boundaries in terms of absolute time;
+    # hp.boundaries specifies it relative to the end of the sequence
+    # and with the unit being the layer's period.  note that due to
+    # the dynamic unrolling of the inner graph, the inner layers
+    # necessarily get truncated at the topmost inner layer's boundary.
+    boundaries = [length - 1 - hp.boundaries[i] * int(np.prod(hp.periods[:i + 1]))
+                  for i in range(len(hp.periods))]
+    assert all(0 <= boundary and boundary < length for boundary in boundaries)
+    assert boundaries == list(reversed(sorted(boundaries)))
+
+    print "length %s periods %s boundaries %s %s" % (length, hp.periods, hp.boundaries, boundaries)
+
     outer_step_count = length // (chunk_size * inner_period)
     for outer_time in range(outer_step_count):
-      is_first_iteration = outer_time == 0
-      is_last_iteration = outer_time == outer_step_count - 1
-
-      if not is_first_iteration:
+      if outer_time > 0:
         tf.get_variable_scope().reuse_variables()
 
       # update outer layers (wrap in seq scope to be consistent with the fully
       # symbolic version of this graph)
       with tf.variable_scope("seq"):
+        # truncate gradient (only effective on outer layers)
+        for i in range(len(self.cells)):
+          if outer_time * inner_period <= boundaries[i]:
+            state.model.cells[i] = list(map(tf.stop_gradient, state.model.cells[i]))
+
         state.model.cells = Wayback.transition(
             outer_time * inner_period, state.model.cells, self.cells,
             below=None, above=context, subset=self.outer_indices, hp=hp,
@@ -498,30 +506,32 @@ class Wayback(BaseModel):
         h = self.get_output(state)
         return h, state
 
+      inner_back_prop = back_prop and outer_time * inner_period >= boundaries[self.inner_indices[-1]]
       inner_ts = _make_sequence_graph(
           transition=_inner_transition, model_state=state.model,
           x=inner_x, initial_xchunk=state.inner_initial_xchunk,
           temperature=temperature, hp=hp,
-          # backprop through inner loop only on last iteration
-          back_prop=back_prop and is_last_iteration)
+          back_prop=inner_back_prop)
 
       state.model = inner_ts.final_state.model
       state.inner_initial_xchunk = inner_ts.final_xchunk if x is not None else inner_ts.final_xhatchunk
       state.final_xhatchunk = inner_ts.final_xhatchunk
       if x is not None:
-        state.final_x=inner_x
+        state.final_x = inner_x
         state.final_xchunk = inner_ts.final_xchunk
-        state.losses.append(inner_ts.loss)
-        state.errors.append(inner_ts.error)
+        # track only losses and errors after the boundary to avoid bypassing the truncation boundary.
+        if inner_back_prop:
+          state.losses.append(inner_ts.loss)
+          state.errors.append(inner_ts.error)
       state.xhats.append(inner_ts.xhat)
+
+      # restore static outer states
+      state.model.cells[self.outer_slice] = outer_cell_states
 
       # double check alignment to be safe
       inner_alignment_assertion = tf.Assert(tf.equal(state.model.time % inner_period, 0), [state.model.time, tf.shape(inner_x)], name="inner_alignment_assertion")
       with tf.control_dependencies([inner_alignment_assertion]):
         state.model.time = tf.identity(state.model.time)
-
-      # restore static outer states
-      state.model.cells[self.outer_slice] = outer_cell_states
 
     ts = NS()
     ts.xhat = tf.concat(0, state.xhats)
@@ -530,14 +540,8 @@ class Wayback(BaseModel):
     if x is not None:
       ts.final_x = state.final_x
       ts.final_xchunk = state.final_xchunk
-      if back_prop:
-        # take only the last subsequence's losses so we don't bypass the
-        # truncation boundary.
-        ts.loss = state.losses[-1]
-        ts.error = state.errors[-1]
-      else:
-        ts.loss = tf.concat(0, state.losses)
-        ts.error = tf.concat(0, state.errors)
+      ts.loss = tf.concat(0, state.losses)
+      ts.error = tf.concat(0, state.errors)
     return ts
 
 def _make_sequence_graph(transition=None, model_state=None, x=None,
