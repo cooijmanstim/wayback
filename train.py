@@ -15,6 +15,7 @@ tf.flags.DEFINE_integer("max_step_count", 100000, "max number of training steps"
 tf.flags.DEFINE_integer("max_examples", None, "number of examples to train on")
 tf.flags.DEFINE_integer("validation_interval", 100, "number of training steps between validations")
 tf.flags.DEFINE_integer("tracking_interval", 100, "number of training steps between performance tracking") # fine-grained hits NFS all the time
+tf.flags.DEFINE_bool("dump_predictions", False, "dump prediction fragments with every validation")
 tf.flags.DEFINE_string("basename", None, "model name prefix")
 tf.flags.DEFINE_string("hyperparameters", "", "hyperparameter settings")
 tf.flags.DEFINE_string("data_dir", None, "path to data directory; must have" " train/valid/test subdirectories containing wav files")
@@ -98,14 +99,16 @@ def main(argv):
 
   def maybe_validate(state):
     if state.global_step % FLAGS.validation_interval == 0:
-      # extract final exhats and losses for debugging
-      aggregates = dict((key, util.LastAggregate()) for key in "seq.final_x final_state.exhats final_state.losses".split())
+      aggregates = {}
+      if FLAGS.dump_predictions:
+        # extract final exhats and losses for debugging
+        aggregates.update((key, util.LastAggregate()) for key in "seq.final_x final_state.exhats final_state.losses".split())
       values = evaluator.run(examples=dataset.examples.valid, session=session, hp=hp,
                              aggregates=aggregates,
                              # don't spend too much time evaluating
                              max_step_count=FLAGS.validation_interval // 3)
       supervisor.summary_computed(session, tf.Summary(value=values.summaries))
-      if True:
+      if FLAGS.dump_predictions:
         np.savez_compressed(os.path.join(os.path.dirname(supervisor.save_path),
                                          "xhats_%i.npz" % state.global_step),
                             # i'm sure we'll get the idea from 100 steps of 10 examples
