@@ -35,6 +35,7 @@ def get_model_name(hp):
       "s%d" % hp.segment_length,
       "c%d" % hp.chunk_size,
       "p%s" % ",".join(list(map(str, hp.periods))),
+      "b%s" % ",".join(list(map(str, hp.boundaries))),
       "l%s" % ",".join(list(map(str, hp.layer_sizes))),
       "u%d" % hp.unroll_layer_count,
       "bn%s" % hp.use_bn,
