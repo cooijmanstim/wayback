@@ -1,6 +1,10 @@
 import math, tensorflow as tf
 from lib.namespace import Namespace as NS
 
+def assertion(x, *assert_args, **assert_kwargs):
+  with tf.control_dependencies([tf.Assert(*assert_args, **assert_kwargs)]):
+    return tf.identity(x)
+
 def shaped_one_hot(indices, shape, **one_hot_kwargs):
   vectors = tf.one_hot(indices, depth=shape[-1], **one_hot_kwargs)
   vectors.set_shape(shape)

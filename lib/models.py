@@ -443,9 +443,10 @@ class Wayback(BaseModel):
 
     # i suspect ugly gradient biases may occur if gradients are truncated
     # somewhere halfway through the cycle. ensure we start at a cycle boundary.
-    outer_alignment_assertion = tf.Assert(tf.equal(state.model.time, 0), [state.model.time], name="outer_alignment_assertion")
-    with tf.control_dependencies([outer_alignment_assertion]):
-      state.model.time = tf.identity(state.model.time)
+    state.model.time = tfutil.assertion(state.model.time,
+                                        tf.equal(state.model.time, 0),
+                                        [state.model.time],
+                                        name="outer_alignment_assertion")
     # ensure we end at a cycle boundary too.
     assert (length - hp.chunk_size) % (self.period * hp.chunk_size) == 0
 
@@ -528,9 +529,10 @@ class Wayback(BaseModel):
       state.model.cells[self.outer_slice] = outer_cell_states
 
       # double check alignment to be safe
-      inner_alignment_assertion = tf.Assert(tf.equal(state.model.time % inner_period, 0), [state.model.time, tf.shape(inner_x)], name="inner_alignment_assertion")
-      with tf.control_dependencies([inner_alignment_assertion]):
-        state.model.time = tf.identity(state.model.time)
+      state.model.time = tfutil.assertion(state.model.time,
+                                          tf.equal(state.model.time % inner_period, 0),
+                                          [state.model.time, tf.shape(inner_x)],
+                                          name="inner_alignment_assertion")
 
     ts = NS()
     ts.xhat = tf.concat(0, state.xhats)
