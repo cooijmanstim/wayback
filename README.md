@@ -36,9 +36,9 @@ python train
     use_bn: True,
     vskip: True,
     batch_size: 100,
-    segment_length: 100,
     chunk_size: 4,
     layer_sizes: [1000, 1000, 1000],
+    boundaries: [100, 100, 100],
     io_sizes: [256],
     weight_decay: 1e-5
   }'
@@ -116,7 +116,10 @@ The `--hyperparameters` flag specifies the values of the model hyperparameters:
   overfitting.
 
 * The model is trained by truncated backpropagation through time, on segments
-  of length `segment_length`.
+  of 100 chunks. This number is inferred from the `boundaries` hyperparameter,
+  which specifies the minimum backpropagation length for each layer. For the
+  `stack` layout, the length is simply the maximum boundary. For `wayback`,
+  each layer can have different backpropagation lengths.
 
 * To increase the opportunity for parallel computation, sequence data can be
   processed in chunks of `chunk_size` elements at a time. The probability
@@ -164,12 +167,13 @@ python train
     use_bn: True,
     vskip: True,
     batch_size: 100,
-    segment_length: 1155,
-    chunk_size: 3,
+    segment_length: 4000,
+    chunk_size: 4,
     layer_sizes: [1000, 1000, 1000],
-    periods: [5, 7, 11],
+    periods: [1, 1, 10],
+    boundaries: [100, 100, 100],
     unroll_layer_count: 2,
-    carry: False,
+    carry: True,
     io_sizes: [256],
     weight_decay: 1e-5
   }'
@@ -178,14 +182,14 @@ python train
 The wayback layout takes three additional hyperparameters:
 
 * The `periods` determine how often each recurrent layer should update. In this
-  case, the lowest layer will update every 3 steps (i.e. every chunk). The layer
-  above it will update every 15 steps. The topmost layer will update every 105
-  steps. The last element of `periods` specifies how many steps of the topmost
-  layer to take before considering the cycle to be complete.
+  case, the lowest layer will update every 4 steps (i.e. every chunk). The layer
+  above it will also update every 4 steps. The topmost layer will update every 40
+  steps.
 
-  Note that the product of the `periods` and `chunk_size` provides a lower bound
-  on `segment_length`: it does not make sense to truncate backpropagation
-  through time in such a way that some layer has not been updated at all.
+* The `boundaries` determine how far to backpropagate gradient on each level.
+  In this case, we require that each layer is backpropagated through for 100 steps.
+  Since each step of the topmost layer corresponds to 40 steps, the gradient will
+  span 4000 elements of the input sequence.
 
 * `unroll_layer_count` specifies the number of upper layers to unroll. Due to
   Tensorflow limitations it is not possible to stop gradient propagation inside

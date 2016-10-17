@@ -29,7 +29,7 @@ class Evaluator(object):
 
     try:
       for batch in util.batches(examples, hp.batch_size):
-        for segment in util.segments(batch, hp.segment_length, overlap=hp.chunk_size):
+        for segment in util.segments(batch, 10000, overlap=hp.chunk_size):
           if max_step_count is not None and state.step >= max_step_count:
             raise StopIteration()
 

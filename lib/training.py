@@ -6,14 +6,15 @@ import lib.util as util
 class Trainer(object):
   def __init__(self, model, hp, global_step=None):
     self.model = model
+    # (+1 because the last chunk is not processed)
+    self.segment_length = (self.model.boundary + 1) * hp.chunk_size
     self.tensors = self._make(hp, global_step=global_step)
 
   def _make(self, hp, global_step=None):
     ts = NS()
     ts.global_step = global_step
     ts.x = tf.placeholder(dtype=tf.int32, name="x")
-    length = hp.segment_length + hp.chunk_size
-    ts.seq = self.model.make_training_graph(x=ts.x, length=length)
+    ts.seq = self.model.make_training_graph(x=ts.x, length=self.segment_length)
     ts.final_state = ts.seq.final_state
     ts.loss = ts.seq.loss
     ts.error = ts.seq.error
@@ -56,14 +57,7 @@ class Trainer(object):
                model=self.model.initial_state(hp.batch_size))
     while True:
       for batch in util.batches(examples, hp.batch_size):
-        for segment in util.segments(batch,
-                                     # the last chunk is not processed, so grab
-                                     # one more to ensure we backpropagate
-                                     # through at least one full model cycle.
-                                     # TODO(cotim): rename segment_length to
-                                     # backprop_length?
-                                     hp.segment_length + hp.chunk_size,
-                                     overlap=hp.chunk_size):
+        for segment in util.segments(batch, self.segment_length, overlap=hp.chunk_size):
           if max_step_count is not None and state.global_step >= max_step_count:
             return
 

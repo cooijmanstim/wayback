@@ -116,7 +116,12 @@ def batch_normalize(x, beta=None, gamma=None, epsilon=1e-5, scope=None):
   """
   # TODO(cotim): implement population statistics
   with tf.variable_scope(scope or "bn", [x, beta, gamma]):
-    mean, variance = tf.nn.moments(x, [0])
+    # tf.nn.moments doesn't deal well with dynamic shapes
+    #mean, variance = tf.nn.moments(x, [0])
+    mean = tf.reduce_mean(x, [0])
+    variance = tf.reduce_mean((x - mean)**2, [0])
+    #variance = tf.reduce_mean(x**2, [0]) - mean**2
+
     dim = x.get_shape().as_list()[-1]
     if gamma is None:
       gamma = tf.get_variable("gamma", shape=dim, initializer=tf.constant_initializer(0.1))

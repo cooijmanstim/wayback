@@ -17,7 +17,6 @@ def construct(hp):
             for i, layer_size in enumerate(hp.layer_sizes)]
   model_implementation = dict(stack=Stack, wayback=Wayback)[hp.layout]
   model = model_implementation(cells_=cells_, hp=hp)
-  assert hp.segment_length >= model.period
   return model
 
 class BaseModel(object):
@@ -43,6 +42,11 @@ class BaseModel(object):
       The model's period.
     """
     return 1
+
+  @property
+  def boundary(self):
+    """Minimum TPBTT segment length."""
+    return NotImplementedError()
 
   def state_placeholders(self):
     """Get the Tensorflow placeholders for the model's states.
@@ -195,6 +199,10 @@ class Stack(BaseModel):
     self.cells = list(cells_)
     self._state_placeholders = NS(cells=[cell.state_placeholders for cell in self.cells])
 
+  @property
+  def boundary(self):
+    return max(self.hp.boundaries)
+
   def initial_state(self, batch_size):
     return NS(cells=[cell.initial_state(batch_size) for cell in self.cells])
 
@@ -225,11 +233,8 @@ class Wayback(BaseModel):
     """Initialize a `Wayback` instance.
 
     The following hyperparameters are specific to this model:
-      periods: update interval of each layer, from top to bottom. As layer 0
-          always runs at every step, periods[0] gives the number of steps
-          of layer 0 before layer 1 is updated. periods[-1] gives the
-          number of steps to run at the highest layer before the model
-          should be considered to have completed a cycle.
+      periods: update interval of each layer, from top to bottom. periods[0]
+          should be 1 unless you're trying to skip inputs.
       unroll_layer_count: number of upper layers to unroll. Unrolling allows
           for gradient truncation on the levels below.
       carry: whether to carry over each cell's state from one cycle to the next
@@ -263,6 +268,10 @@ class Wayback(BaseModel):
   @property
   def period(self):
     return int(np.prod(self.hp.periods))
+
+  @property
+  def boundary(self):
+    return self.hp.boundaries[-1] * self.period
 
   def initial_state(self, batch_size):
     return NS(time=0, cells=[cell.initial_state(batch_size) for cell in self.cells])
@@ -306,7 +315,7 @@ class Wayback(BaseModel):
       Updated cell states. Updating `time` is the caller's responsibility.
     """
     def _is_due(i):
-      countdown = time % np.prod(hp.periods[:i])
+      countdown = time % np.prod(hp.periods[:i + 1])
       return tf.equal(countdown, 0) if symbolic else countdown == 0
 
     subset = list(range(len(cells_))) if subset is None else subset
@@ -450,14 +459,14 @@ class Wayback(BaseModel):
     # ensure we end at a cycle boundary too.
     assert (length - hp.chunk_size) % (self.period * hp.chunk_size) == 0
 
-    inner_period = int(np.prod(hp.periods[self.inner_slice]))
+    inner_period = int(np.prod(hp.periods[:self.outer_indices[0] + 1]))
 
-    # determine truncation boundaries in terms of absolute time;
+    # determine truncation boundaries in terms of chunks;
     # hp.boundaries specifies it relative to the end of the sequence
-    # and with the unit being the layer's period.  note that due to
-    # the dynamic unrolling of the inner graph, the inner layers
+    # and in terms of each layer's own steps. note that due to the
+    # dynamic unrolling of the inner graph, the inner layers
     # necessarily get truncated at the topmost inner layer's boundary.
-    boundaries = [length - hp.chunk_size - hp.boundaries[i] * int(np.prod(hp.periods[:i + 1]))
+    boundaries = [(length / hp.chunk_size) - 1 - hp.boundaries[i] * int(np.prod(hp.periods[:i + 1]))
                   for i in range(len(hp.periods))]
     assert all(0 <= boundary and boundary * hp.chunk_size < length - hp.chunk_size for boundary in boundaries)
     assert boundaries == list(reversed(sorted(boundaries)))

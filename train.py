@@ -14,6 +14,7 @@ tf.flags.DEFINE_bool("resume", False, "resume training from a checkpoint or dele
 tf.flags.DEFINE_integer("max_step_count", 100000, "max number of training steps")
 tf.flags.DEFINE_integer("max_examples", None, "number of examples to train on")
 tf.flags.DEFINE_integer("validation_interval", 100, "number of training steps between validations")
+tf.flags.DEFINE_integer("max_validation_steps", 100, "max number of steps per validation")
 tf.flags.DEFINE_integer("tracking_interval", 100, "number of training steps between performance tracking") # fine-grained hits NFS all the time
 tf.flags.DEFINE_bool("dump_predictions", False, "dump prediction fragments with every validation")
 tf.flags.DEFINE_string("basename", None, "model name prefix")
@@ -32,7 +33,6 @@ def get_model_name(hp):
   fragments.append("bd%d" % hp.bit_depth)
   fragments.extend([
       hp.layout, hp.cell,
-      "s%d" % hp.segment_length,
       "c%d" % hp.chunk_size,
       "p%s" % ",".join(list(map(str, hp.periods))),
       "b%s" % ",".join(list(map(str, hp.boundaries))),
@@ -106,8 +106,7 @@ def main(argv):
         aggregates.update((key, util.LastAggregate()) for key in "seq.final_x final_state.exhats final_state.losses".split())
       values = evaluator.run(examples=dataset.examples.valid, session=session, hp=hp,
                              aggregates=aggregates,
-                             # don't spend too much time evaluating
-                             max_step_count=FLAGS.validation_interval // 3)
+                             max_step_count=FLAGS.max_validation_steps)
       supervisor.summary_computed(session, tf.Summary(value=values.summaries))
       if FLAGS.dump_predictions:
         np.savez_compressed(os.path.join(os.path.dirname(supervisor.save_path),
