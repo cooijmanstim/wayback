@@ -21,7 +21,7 @@ def preprocess_primers(examples, hp):
     k = min_batch_size // len(examples)
     examples.extend(example.with_offset(offset)
                     for example in examples
-                    for offset in np.random.choice(len(example), size=[k], replace=False))
+                    for offset in util.random_choice(len(example), size=[k], replace=False))
 
   # maybe augment number of time steps to ensure util.segments doesn't discard
   # anything at the ends of the examples. this is done by left-padding the
@@ -35,7 +35,7 @@ def preprocess_primers(examples, hp):
   if len(examples_segments) > 2:
     # don't use the first and last segments to avoid silence
     examples_segments = examples_segments[1:-1]
-  examples = examples_segments[np.random.choice(len(examples_segments))]
+  examples = examples_segments[util.random_choice(len(examples_segments))]
 
   return examples
 

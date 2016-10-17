@@ -54,7 +54,7 @@ def batches(examples, batch_size, augment=True):
     k = int(np.ceil(batch_size / float(len(examples))))
     examples = [example.with_offset(offset)
                 for example in examples
-                for offset in np.random.choice(len(example), size=[k], replace=False)]
+                for offset in random_choice(len(example), k)]
 
   np.random.shuffle(examples)
   for i in range(0, len(examples), batch_size):
@@ -150,3 +150,18 @@ class LastAggregate(object):
   @property
   def value(self):
     return self.v
+
+def random_choice(n, k=1, rng=np.random):
+  # np.random.choice handles this case really poorly, effectively
+  # explicitly allocating range(n), shuffling it and taking a slice.
+  # the logic here sucks too but it's orders of magnitude more
+  # efficient for large n.
+  assert n >= k
+  if k > n / 2:
+    # if k is close to n, the loop below will take longer to complete.
+    # but since n is similar to k, allocating range(n) will be okay.
+    return rng.choice(n, size=[k], replace=False)
+  indices = set()
+  while len(indices) < k:
+    indices.update(set(rng.randint(n, size=[k - len(indices)])))
+  return np.array(list(indices))
