@@ -1,5 +1,6 @@
-import sys, functools as ft, numpy as np, tensorflow as tf
+import sys, numpy as np, tensorflow as tf
 from lib.namespace import Namespace as NS
+import lib.tfutil as tfutil
 import lib.util as util
 
 class Evaluator(object):
@@ -36,7 +37,7 @@ class Evaluator(object):
           x, = util.examples_as_arrays(segment)
           feed_dict = {self.tensors.x: x.T}
           feed_dict.update(self.model.feed_dict(state.model))
-          values = NS.FlatCall(ft.partial(session.run, feed_dict=feed_dict), tensors)
+          values = tfutil.run(session, tensors, feed_dict=feed_dict)
 
           for key in aggregates.Keys():
             aggregates[key].add(values[key])

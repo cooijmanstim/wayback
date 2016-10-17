@@ -1,4 +1,4 @@
-import functools as ft, numpy as np, tensorflow as tf
+import numpy as np, tensorflow as tf, gc
 from lib.namespace import Namespace as NS
 import lib.tfutil as tfutil
 import lib.util as util
@@ -53,6 +53,7 @@ class Trainer(object):
     return ts
 
   def run(self, session, examples, max_step_count=None, hooks=None, hp=None):
+    tensors = self.tensors.Extract("loss error summaries global_step training_op learning_rate final_state.model")
     state = NS(global_step=tf.train.global_step(session, self.tensors.global_step),
                model=self.model.initial_state(hp.batch_size))
     while True:
@@ -65,8 +66,7 @@ class Trainer(object):
           x, = util.examples_as_arrays(segment)
           feed_dict = {self.tensors.x: x.T}
           feed_dict.update(self.model.feed_dict(state.model))
-          values = NS.FlatCall(ft.partial(session.run, feed_dict=feed_dict),
-                               self.tensors.Extract("loss error summaries global_step training_op learning_rate final_state.model"))
+          values = tfutil.run(session, tensors, feed_dict=feed_dict)
           state.model = values.final_state.model
           state.global_step = values.global_step
           hooks.Get("step.after", util.noop)(state, values)

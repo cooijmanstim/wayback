@@ -1,4 +1,4 @@
-import math, tensorflow as tf
+import math, functools as ft, tensorflow as tf
 from lib.namespace import Namespace as NS
 
 def assertion(x, *assert_args, **assert_kwargs):
@@ -194,3 +194,21 @@ def sample(logits, temperature=1.0):
     logits /= temperature
   index = tf.to_int32(tf.multinomial(logits, 1)[:, 0])
   return index
+
+def run(session, tensors, **run_kwargs):
+  trace = True
+
+  if trace:
+    run_metadata = tf.RunMetadata()
+    run_kwargs["options"] = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+    run_kwargs["run_metadata"] = run_metadata
+
+  values = NS.FlatCall(ft.partial(session.run, **run_kwargs), tensors)
+  
+  if trace:
+    from tensorflow.python.client import timeline
+    trace = timeline.Timeline(step_stats=run_metadata.step_stats)
+    with open("timeline_%s.json" % "_".join(".".join(key for key in tensors.Keys())), "w") as trace_file:
+      trace_file.write(trace.generate_chrome_trace_format())
+
+  return values
