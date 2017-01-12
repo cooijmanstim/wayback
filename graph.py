@@ -1,7 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-import matplotlib.transforms as transforms
 
 def norm(x):
   return np.sqrt((x ** 2).sum())
@@ -14,19 +13,13 @@ def arrowbase(a, b, radius):
 
 radius = 0.25
 
-transform = transforms.Affine2D()
-transform.scale(40)
-transform.translate(50, 50)
-
 def mknode(x, **kwargs):
   kwargs.setdefault("radius", radius)
-  #kwargs.setdefault("transform", transform)
   return patches.Circle(x, **kwargs)
 
 def mkedge(a, b, **kwargs):
   kwargs.setdefault("width", 0.00625)
   kwargs.setdefault("length_includes_head", True)
-  #kwargs.setdefault("transform", transform)
   a, b = np.asarray(a), np.asarray(b)
   dx = b - a
   ray = radius * direction(dx)
