@@ -27,13 +27,6 @@ def mkedge(a, b, **kwargs):
   dx = dx - 2 * ray
   return patches.FancyArrow(a[0], a[1], dx[0], dx[1], **kwargs)
 
-nodes = []
-edges = []
-
-periods = np.array([3, 3, 3])
-strides = np.concatenate([[1], np.cumprod(periods)[:-1]], axis=0)
-lastx = np.array([None] * len(periods))
-
 class Node(object):
   def __init__(self, x):
     self.x = x
@@ -60,51 +53,51 @@ class Node(object):
   def subtree(self):
     return set([self]) | set(self.ancestors)
 
-def drawgraph(nodes, ax):
-  for node in nodes:
-    for patch in node.patches:
-      ax.add_artist(patch)
-
-def nodeat(x, nodes):
-  return next(node for node in nodes if node.x == x)
-
-# construct complete graph
-T = int(np.prod(periods))
-states = [Node((-1, y)) for y in range(len(strides))]
-nodes = set()
-for x in range(T):
-  for y, stride in reversed(list(enumerate(strides))):
-    if x % stride == 0:
+def waybackprop_forward(states, periods):
+  strides = np.concatenate([[1], np.cumprod(periods)[:-1]], axis=0)
+  T = int(np.prod(periods))
+  for x in range(T):
+    for y, stride in reversed(list(enumerate(strides))):
+      if x % stride != 0:
+        # don't update this layer at this time
+        continue
       if y > 0:
+        # disconnect gradient on layer below
         states[y - 1].constant = True
       node = Node((x, y))
       for dy in [-1, 0, 1]:
         if 0 <= y + dy and y + dy < len(states):
-          parent = states[y + dy]
           node.connect_from(states[y + dy])
       states[y] = node
-      nodes.add(node)
+  return states
 
-# care only about rightmost bottom node and its ancestors
-end = states[0]
-
-forwardnodes = end.subtree
-
-# compute backprop graph
-def construct_backward(node, child=None):
+# construct backprop graph
+def backward(node, child=None):
   bnode = Node(node.x)
   if child is not None:
     bnode.connect_from(child)
   nodes = set([bnode])
   if not node.constant:
     for parent in node.parents:
-      nodes |= construct_backward(parent, node)
+      nodes |= backward(parent, node)
   return nodes
 
-backwardnodes = construct_backward(end)
+periods = np.array([3] * 3)
+periods = np.array([9])
+states = [Node((-1, y)) for y in range(len(periods))]
+states = waybackprop_forward(states, periods)
+# care only about last bottom node and its ancestors
+loss = states[0]
 
-for graph in [nodes, forwardnodes, backwardnodes]:
+forwardnodes = loss.subtree
+backwardnodes = backward(loss)
+
+for nodes in [forwardnodes, backwardnodes]:
   fix, ax = plt.subplots(1)
-  drawgraph(graph, ax)
+  for node in nodes:
+    for patch in node.patches:
+      ax.add_patch(patch)
   ax.set_aspect('equal', 'datalim')
+  ax.autoscale(True)
+plt.tight_layout()
 plt.show()
