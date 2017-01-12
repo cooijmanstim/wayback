@@ -2,31 +2,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
-def norm(x):
-  return np.sqrt((x ** 2).sum())
-
-def direction(x):
-  return np.where(x == 0, 0, x / norm(x))
-
-def arrowbase(a, b, radius):
-  return a + radius * direction(b - a)
-
-radius = 0.25
-
-def mknode(x, **kwargs):
-  kwargs.setdefault("radius", radius)
-  return patches.Circle(x, **kwargs)
-
-def mkedge(a, b, **kwargs):
-  kwargs.setdefault("width", 0.00625)
-  kwargs.setdefault("length_includes_head", True)
-  a, b = np.asarray(a), np.asarray(b)
-  dx = b - a
-  ray = radius * direction(dx)
-  a = a + ray
-  dx = dx - 2 * ray
-  return patches.FancyArrow(a[0], a[1], dx[0], dx[1], **kwargs)
-
 class Node(object):
   def __init__(self, x):
     self.x = x
@@ -36,11 +11,6 @@ class Node(object):
 
   def connect_from(self, parent):
     self.parents.add(parent)
-
-  @property
-  def patches(self):
-    return ([mknode(self.x)] +
-            [mkedge(a.x, self.x) for a in self.parents])
 
   @property
   def ancestors(self):
@@ -92,11 +62,32 @@ loss = states[0]
 forwardnodes = loss.subtree
 backwardnodes = backward(loss)
 
+
+radius = 0.25
+
+def mknode(node, **kwargs):
+  kwargs.setdefault("radius", radius)
+  return patches.Circle(node.x, **kwargs)
+
+def mkedge(node_a, node_b, **kwargs):
+  kwargs.setdefault("width", 0.00625)
+  kwargs.setdefault("length_includes_head", True)
+  a, b = np.asarray(node_a.x), np.asarray(node_b.x)
+  # find unit vector from a to b
+  dx = b - a
+  u = np.where(dx == 0, 0, dx / np.sqrt((dx ** 2).sum()))
+  # projection of b onto node_a's perimeter
+  a = a + radius * u
+  # shorten edge by 2 * radius to go from perimeter to perimeter
+  dx = dx - 2 * radius * u
+  return patches.FancyArrow(a[0], a[1], dx[0], dx[1], **kwargs)
+
 for nodes in [forwardnodes, backwardnodes]:
   fix, ax = plt.subplots(1)
   for node in nodes:
-    for patch in node.patches:
-      ax.add_patch(patch)
+    ax.add_patch(node_patch(node))
+    for parent in node.parents:
+      ax.add_patch(edge_patch(node, parent))
   ax.set_aspect('equal', 'datalim')
   ax.autoscale(True)
 plt.tight_layout()
