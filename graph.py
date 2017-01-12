@@ -20,13 +20,13 @@ transform.translate(50, 50)
 
 def mknode(x, **kwargs):
   kwargs.setdefault("radius", radius)
-  kwargs.setdefault("transform", transform)
+  #kwargs.setdefault("transform", transform)
   return patches.Circle(x, **kwargs)
 
 def mkedge(a, b, **kwargs):
   kwargs.setdefault("width", 0.00625)
   kwargs.setdefault("length_includes_head", True)
-  kwargs.setdefault("transform", transform)
+  #kwargs.setdefault("transform", transform)
   a, b = np.asarray(a), np.asarray(b)
   dx = b - a
   ray = radius * direction(dx)
@@ -46,6 +46,7 @@ class Node(object):
     self.x = x
     self.parents = set()
     self._ancestors = None
+    self.constant = False
 
   def connect_from(self, parent):
     self.parents.add(parent)
@@ -58,40 +59,59 @@ class Node(object):
   @property
   def ancestors(self):
     if self._ancestors is None:
-      self._ancestors = set(self.parents) | set(a for p in self.parents for a in p.ancestors)
+      self._ancestors = (set(self.parents) |
+                         set(a for p in self.parents for a in p.ancestors))
     return set(self._ancestors)
 
   @property
   def subtree(self):
     return set([self]) | set(self.ancestors)
 
-def graphfigure(nodes):
-  fig = plt.figure()
-  rawr = lambda *x: fig.patches.extend(x)
+def drawgraph(nodes, ax):
   for node in nodes:
-    fig.patches.extend(node.patches)
+    for patch in node.patches:
+      ax.add_artist(patch)
+
+def nodeat(x, nodes):
+  return next(node for node in nodes if node.x == x)
 
 # construct complete graph
+T = int(np.prod(periods))
+states = [Node((-1, y)) for y in range(len(strides))]
 nodes = set()
-for x in range(int(np.prod(periods)) + 1):
-  for y, stride in enumerate(strides):
+for x in range(T):
+  for y, stride in reversed(list(enumerate(strides))):
     if x % stride == 0:
+      if y > 0:
+        states[y - 1].constant = True
       node = Node((x, y))
       for dy in [-1, 0, 1]:
-        if 0 <= y + dy and y + dy < len(lastx) and lastx[y + dy] is not None:
-          node.connect_from(next(node for node in nodes
-                                 if node.x == (lastx[y + dy], y + dy)))
-      lastx[y] = x
+        if 0 <= y + dy and y + dy < len(states):
+          parent = states[y + dy]
+          node.connect_from(states[y + dy])
+      states[y] = node
       nodes.add(node)
 
 # care only about rightmost bottom node and its ancestors
-end = max((node for node in nodes if node.x[1] == 0),
-          key=lambda node: node.x[0])
+end = states[0]
 
 forwardnodes = end.subtree
 
-graphfigure(forwardnodes)
+# compute backprop graph
+def construct_backward(node, child=None):
+  bnode = Node(node.x)
+  if child is not None:
+    bnode.connect_from(child)
+  nodes = set([bnode])
+  if not node.constant:
+    for parent in node.parents:
+      nodes |= construct_backward(parent, node)
+  return nodes
+
+backwardnodes = construct_backward(end)
+
+for graph in [nodes, forwardnodes, backwardnodes]:
+  fix, ax = plt.subplots(1)
+  drawgraph(graph, ax)
+  ax.set_aspect('equal', 'datalim')
 plt.show()
-
-# compute backprop graph from end
-
