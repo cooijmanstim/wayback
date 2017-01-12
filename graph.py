@@ -99,7 +99,7 @@ for nodes in [forwardnodes, backwardnodes]:
   for node in nodes:
     ax.add_patch(node_patch(node))
     for parent in node.parents:
-      ax.add_patch(edge_patch(node, parent))
+      ax.add_patch(edge_patch(parent, node))
   ax.set_aspect('equal', 'datalim')
   ax.autoscale(True)
 plt.tight_layout()
