@@ -68,7 +68,7 @@ def backward(node, child=None):
   nodes = set([bnode])
   if not node.constant:
     for parent in node.parents:
-      nodes |= backward(parent, node)
+      nodes |= backward(parent, bnode)
   return nodes
 
 periods = np.array([3] * 3)
