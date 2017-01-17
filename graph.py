@@ -41,6 +41,9 @@ class Node(object):
       left -= raa
     return sequence
 
+  def __repr__(self):
+    return repr(self.x)
+
 def waybackprop_forward(states, periods):
   states = list(states)
   strides = np.concatenate([[1], np.cumprod(periods)[:-1]], axis=0)
@@ -72,7 +75,6 @@ def backward(node, child=None):
   return nodes
 
 periods = np.array([3] * 3)
-#periods = np.array([9])
 initial_states = [Node((-1, y)) for y in range(len(periods))]
 final_states = waybackprop_forward(initial_states, periods)
 
@@ -103,20 +105,31 @@ class Colors(object):
   blue = (51/255., 103/255., 214/255.)
   lightblue = (66/255., 133/255., 244/255.)
   aqua = (111/255., 201/255., 198/255.)
+  magenta = (194/255., 61/255., 87/255.)
+  lightmagenta = (221/255., 79/255., 112/255.)
   dullblue = seaborn.desaturate(blue, 0.)
   dulllightblue = seaborn.desaturate(lightblue, 0.)
 
-def node_patch(node, active=True, **kwargs):
+def node_patch(node, active=True, backward=False, **kwargs):
   kwargs.setdefault("radius", radius)
-  kwargs["facecolor"] = (Colors.dulllightblue if not active else
-                         Colors.aqua if node.constant else
-                         Colors.lightblue)
-  kwargs["edgecolor"] = (Colors.dullblue if not active else
-                         Colors.blue)
+  fc = Colors.dulllightblue
+  ec = Colors.dullblue
+  if active:
+    if backward:
+      fc = Colors.lightmagenta
+      ec = Colors.magenta
+    else:
+      fc = Colors.lightblue
+      ec = Colors.blue
+    # NOTE: make unmemorized nodes dull again?
+    if node.constant:
+      fc = Colors.aqua
+  kwargs["facecolor"] = fc
+  kwargs["edgecolor"] = ec
   return patches.Circle(node.x,
                         **kwargs)
 
-def edge_patch(node_a, node_b, active=True, **kwargs):
+def edge_patch(node_a, node_b, active=True, backward=False, **kwargs):
   kwargs.setdefault("width", 0.00625)
   kwargs.setdefault("length_includes_head", True)
   a, b = np.asarray(node_a.x), np.asarray(node_b.x)
@@ -132,52 +145,50 @@ def edge_patch(node_a, node_b, active=True, **kwargs):
                             edgecolor=Colors.blue if active else Colors.dullblue,
                             **kwargs)
 
-if False:
-  for nodes in [forwardnodes, backwardnodes]:
-    fix, ax = plt.subplots(1)
-    for node in nodes:
-      ax.add_patch(node_patch(node))
-      for parent in node.parents:
-        ax.add_patch(edge_patch(parent, node))
-    ax.set_aspect('equal', 'datalim')
-    ax.autoscale(True)
+fig, ax = plt.subplots(1)
 
-    # draw only one figure for now
-    #break
-else:
-  for sequence in [forwardsequence, backwardsequence]:
-    fig, ax = plt.subplots(1)
+# draw inactive structure
+for nodes in forwardsequence:
+  for node in nodes:
+    ax.add_patch(node_patch(node, active=False))
+    for parent in node.parents:
+      ax.add_patch(edge_patch(parent, node, active=False))
 
-    # draw inactive structure
-    for nodes in sequence:
-      for node in nodes:
-        ax.add_patch(node_patch(node, active=False))
-        for parent in node.parents:
-          ax.add_patch(edge_patch(parent, node, active=False))
+# animate forward
+artistsequence = []
+for nodes in forwardsequence:
+  artists = []
+  for node in nodes:
+    artists.append(node_patch(node, active=True))
+    for parent in node.parents:
+      artists.append(edge_patch(parent, node, active=True))
+  artistsequence.append(artists)
+  # associate artists with ax
+  for artist in artists:
+    ax.add_patch(artist)
 
-    # animate turning on
-    artistsequence = []
-    for nodes in sequence:
-      artists = []
-      for node in nodes:
-        artists.append(node_patch(node, active=True))
-        for parent in node.parents:
-          artists.append(edge_patch(parent, node, active=True))
-      artistsequence.append(artists)
-      for artist in artists:
-        ax.add_patch(artist)
+# animate backward
+for nodes in backwardsequence:
+  artists = []
+  for node in nodes:
+    artists.append(node_patch(node, active=True, backward=True))
+    for parent in node.parents:
+      artists.append(edge_patch(parent, node, active=True, backward=True))
+  artistsequence.append(artists)
+  # associate artists with ax
+  for artist in artists:
+    ax.add_patch(artist)
 
-    cumulative_artistsequence = []
-    cumulative_artists = []
-    for artists in artistsequence:
-      cumulative_artists.extend(artists)
-      cumulative_artistsequence.append(list(cumulative_artists))
-    artistsequence = cumulative_artistsequence
+cumulative_artistsequence = []
+cumulative_artists = []
+for artists in artistsequence:
+  cumulative_artists.extend(artists)
+  cumulative_artistsequence.append(list(cumulative_artists))
+artistsequence = cumulative_artistsequence
 
-    yuck = animation.ArtistAnimation(fig, artistsequence, interval=1000, repeat_delay=0, blit=True)
-    ax.set_aspect('equal', 'datalim')
-    ax.autoscale(True)
+yuck = animation.ArtistAnimation(fig, artistsequence, interval=250, repeat_delay=0, blit=True)
+ax.set_aspect('equal', 'datalim')
+ax.autoscale(True)
 
-    break
 plt.tight_layout()
 plt.show()
