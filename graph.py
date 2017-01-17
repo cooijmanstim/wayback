@@ -42,6 +42,7 @@ class Node(object):
     return sequence
 
 def waybackprop_forward(states, periods):
+  states = list(states)
   strides = np.concatenate([[1], np.cumprod(periods)[:-1]], axis=0)
   T = int(np.prod(periods))
   for x in range(T):
