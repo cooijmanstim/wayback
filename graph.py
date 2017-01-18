@@ -1,3 +1,4 @@
+from collections import defaultdict as ddict
 import functools as ft
 import numpy as np
 import matplotlib.pyplot as plt
@@ -17,6 +18,18 @@ class Node(object):
     self.parents.add(parent)
     parent.children.add(self)
 
+  if False:
+    def __hash__(self):
+      return hash(self.x)
+  
+    def __eq__(self, other):
+      if not isinstance(other, Node):
+        return False
+      return self.x == other.x
+  
+    def __neq__(self, other):
+      return not self.eq(other)
+
   @property
   def ancestors(self):
     if self._ancestors is None:
@@ -27,19 +40,6 @@ class Node(object):
   @property
   def subtree(self):
     return set([self]) | set(self.ancestors)
-
-  @property
-  def forwardsequence(self):
-    # toposort-like sequence of sets of nodes in order of earliest possible computation
-    left = set([self]) | self.ancestors
-    done = set([])
-    sequence = []
-    while left:
-      raa = set(node for node in left if node.parents <= done)
-      sequence.append(raa)
-      done |= raa
-      left -= raa
-    return sequence
 
   def __repr__(self):
     return repr(self.x)
@@ -74,6 +74,32 @@ def backward(node, child=None):
       nodes |= backward(parent, bnode)
   return nodes
 
+# backward creates multiple nodes with the same x but different sets
+# of parents/children :-( merge these after the fact i guess
+def merge(nodes):
+  adjacency = ddict(set)
+  for node in nodes:
+    adjacency[node.x].update(p.x for p in node.parents)
+  newnodes = dict()
+  for a in adjacency.keys():
+    newnodes[a] = Node(a)
+  for a, bs in adjacency.items():
+    for b in bs:
+      newnodes[a].connect_from(newnodes[b])
+  return newnodes.values()
+
+def schedule(nodes):
+  # toposort-like sequence of sets of nodes in order of earliest possible computation
+  left = ft.reduce(set.union, [node.ancestors for node in nodes], set(nodes))
+  done = set()
+  schedule = []
+  while left:
+    raa = set(node for node in left if node.parents <= done)
+    schedule.append(raa)
+    done |= raa
+    left -= raa
+  return schedule
+
 periods = np.array([3] * 3)
 initial_states = [Node((-1, y)) for y in range(len(periods))]
 final_states = waybackprop_forward(initial_states, periods)
@@ -81,23 +107,26 @@ final_states = waybackprop_forward(initial_states, periods)
 # compute gradient of last state, irl would be gradient of loss which is an aggregate of statewise predictions
 loss = final_states[0]
 forwardnodes = loss.subtree
-forwardsequence = loss.forwardsequence
+#forwardschedule = schedule([loss])
 
-# actually we don't want to compute according to forwardsequence which computes
+# actually we don't want to compute according to schedule which computes
 # upper nodes as soon as their dependencies are available;
-# instead we want to go left-to-right top-to-bottom, time-major order.
+# instead we want to go left-to-right top-to-bottom, time-major order
+# as it communicates the idea better.
 # basically exactly according to the algorithm that constructs the forward graph,
-# but lacks hack up a new forwardsequence with that order.
-forwardsequence = [[n] for n in sorted(sorted(forwardnodes,
+# but let's hack up a new forwardschedule with that order.
+forwardschedule = [[n] for n in sorted(sorted(forwardnodes,
                                               key=lambda n: -n.x[1]),
                                        key=lambda n: n.x[0])]
 
-# with respect to initial hidden state
-backwardnodes = backward(loss)
-# find the parameter node in the backward graph
-parameter = next(node for node in backwardnodes if node.x == initial_states[-1].x)
-backwardsequence = parameter.forwardsequence
+backwardnodes = merge(backward(loss))
+#backwardschedule = schedule(backwardnodes)
 
+# similarly backwardschedule.
+backwardschedule = list(reversed([[n] for n in sorted(sorted(backwardnodes,
+                                                             key=lambda n: -n.x[1]),
+                                                      key=lambda n: n.x[0])]))
+print(list(map(len, backwardschedule)))
 radius = 0.25
 
 class Colors(object):
@@ -140,55 +169,84 @@ def edge_patch(node_a, node_b, active=True, backward=False, **kwargs):
   a = a + radius * u
   # shorten edge by 2 * radius to go from perimeter to perimeter
   dx = dx - 2 * radius * u
+  color = Colors.dullblue
+  if active:
+    color = Colors.magenta if backward else Colors.blue
   return patches.FancyArrow(a[0], a[1], dx[0], dx[1],
-                            facecolor=Colors.blue if active else Colors.dullblue,
-                            edgecolor=Colors.blue if active else Colors.dullblue,
+                            facecolor=color,
+                            edgecolor=color,
                             **kwargs)
 
-fig, ax = plt.subplots(1)
-
-# draw inactive structure
-for nodes in forwardsequence:
-  for node in nodes:
+def draw_backward_subtree():
+  fig, ax = plt.subplots(1)
+  if not backwardnodes:
+    import pdb; pdb.set_trace()
+  # draw backward structure
+  for node in backwardnodes:
     ax.add_patch(node_patch(node, active=False))
     for parent in node.parents:
       ax.add_patch(edge_patch(parent, node, active=False))
+  ax.set_aspect('equal', 'datalim')
+  ax.autoscale(True)
+  fig, ax = plt.subplots(1)
+  # draw backward structure
+  for nodes in backwardschedule:
+    for node in nodes:
+      ax.add_patch(node_patch(node, active=False))
+      for parent in node.parents:
+        ax.add_patch(edge_patch(parent, node, active=False))
+  ax.set_aspect('equal', 'datalim')
+  ax.autoscale(True)
 
-# animate forward
-artistsequence = []
-for nodes in forwardsequence:
-  artists = []
-  for node in nodes:
-    artists.append(node_patch(node, active=True))
-    for parent in node.parents:
-      artists.append(edge_patch(parent, node, active=True))
-  artistsequence.append(artists)
-  # associate artists with ax
-  for artist in artists:
-    ax.add_patch(artist)
+# must keep a reference to matplotlib animation object or it won't go :/
+yuck = []
 
-# animate backward
-for nodes in backwardsequence:
-  artists = []
-  for node in nodes:
-    artists.append(node_patch(node, active=True, backward=True))
-    for parent in node.parents:
-      artists.append(edge_patch(parent, node, active=True, backward=True))
-  artistsequence.append(artists)
-  # associate artists with ax
-  for artist in artists:
-    ax.add_patch(artist)
+def draw_animation():
+  fig, ax = plt.subplots(1)
+  # draw inactive structure
+  for nodes in forwardschedule:
+    for node in nodes:
+      ax.add_patch(node_patch(node, active=False))
+      for parent in node.parents:
+        ax.add_patch(edge_patch(parent, node, active=False))
+  
+  # animate forward
+  artistsequence = []
+  for nodes in forwardschedule:
+    artists = []
+    for node in nodes:
+      artists.append(node_patch(node, active=True))
+      for parent in node.parents:
+        artists.append(edge_patch(parent, node, active=True))
+    artistsequence.append(artists)
+    # associate artists with ax
+    for artist in artists:
+      ax.add_patch(artist)
+  
+  # animate backward
+  for nodes in backwardschedule:
+    artists = []
+    for node in nodes:
+      artists.append(node_patch(node, active=True, backward=True))
+      for parent in node.parents:
+        artists.append(edge_patch(parent, node, active=True, backward=True))
+    artistsequence.append(artists)
+    # associate artists with ax
+    for artist in artists:
+      ax.add_patch(artist)
 
-cumulative_artistsequence = []
-cumulative_artists = []
-for artists in artistsequence:
-  cumulative_artists.extend(artists)
-  cumulative_artistsequence.append(list(cumulative_artists))
-artistsequence = cumulative_artistsequence
+  cumulative_artistsequence = []
+  cumulative_artists = []
+  for artists in artistsequence:
+    cumulative_artists.extend(artists)
+    cumulative_artistsequence.append(list(cumulative_artists))
+  artistsequence = cumulative_artistsequence
+  
+  yuck.append(animation.ArtistAnimation(fig, artistsequence, interval=250, repeat_delay=3000, blit=True))
+  ax.set_aspect('equal', 'datalim')
+  ax.autoscale(True)
 
-yuck = animation.ArtistAnimation(fig, artistsequence, interval=250, repeat_delay=0, blit=True)
-ax.set_aspect('equal', 'datalim')
-ax.autoscale(True)
-
+#draw_backward_subtree()
+draw_animation()
 plt.tight_layout()
 plt.show()
