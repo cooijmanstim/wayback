@@ -114,18 +114,38 @@ forwardnodes = loss.subtree
 # as it communicates the idea better.
 # basically exactly according to the algorithm that constructs the forward graph,
 # but let's hack up a new forwardschedule with that order.
-forwardschedule = [[n] for n in sorted(sorted(forwardnodes,
-                                              key=lambda n: -n.x[1]),
-                                       key=lambda n: n.x[0])]
+forwardschedule = [set([n]) for n in sorted(sorted(forwardnodes,
+                                                   key=lambda n: -n.x[1]),
+                                            key=lambda n: n.x[0])]
 
 backwardnodes = merge(backward(loss))
 #backwardschedule = schedule(backwardnodes)
 
 # similarly backwardschedule.
-backwardschedule = list(reversed([[n] for n in sorted(sorted(backwardnodes,
-                                                             key=lambda n: -n.x[1]),
-                                                      key=lambda n: n.x[0])]))
-print(list(map(len, backwardschedule)))
+backwardschedule = list(reversed([set([n]) for n in sorted(sorted(backwardnodes,
+                                                                  key=lambda n: -n.x[1]),
+                                                           key=lambda n: n.x[0])]))
+
+# nodes whose values are stored in memory; forward equivalents of backward nodes
+memorized_nodes = set(node for node in forwardnodes
+                      if any(bnode.x == node.x for bnode in backwardnodes))
+
+# cumulative forward schedule
+cfws = []
+cfwn = set()
+for nodes in forwardschedule:
+  cfwn |= nodes
+  cfws.append(set(cfwn))
+  # accumulate only stored nodes
+  #cfwn &= memorized_nodes
+
+# cumulative backward schedule
+cbws = []
+cbwn = set()
+for nodes in backwardschedule:
+  cbwn |= nodes
+  cbws.append(set(cbwn))
+
 radius = 0.25
 
 class Colors(object):
@@ -149,7 +169,6 @@ def node_patch(node, active=True, backward=False, **kwargs):
     else:
       fc = Colors.lightblue
       ec = Colors.blue
-    # NOTE: make unmemorized nodes dull again?
     if node.constant:
       fc = Colors.aqua
   kwargs["facecolor"] = fc
@@ -197,12 +216,9 @@ def draw_backward_subtree():
   ax.set_aspect('equal', 'datalim')
   ax.autoscale(True)
 
-# must keep a reference to matplotlib animation object or it won't go :/
-yuck = []
-
 def draw_animation():
   fig, ax = plt.subplots(1)
-  # draw inactive structure
+  # draw inactive backdrop
   for nodes in forwardschedule:
     for node in nodes:
       ax.add_patch(node_patch(node, active=False))
@@ -211,7 +227,7 @@ def draw_animation():
   
   # animate forward
   artistsequence = []
-  for nodes in forwardschedule:
+  for nodes in cfws:
     artists = []
     for node in nodes:
       artists.append(node_patch(node, active=True))
@@ -221,10 +237,14 @@ def draw_animation():
     # associate artists with ax
     for artist in artists:
       ax.add_patch(artist)
-  
+
+  memorized_artists = artistsequence[-1]
+
   # animate backward
-  for nodes in backwardschedule:
+  for nodes in cbws:
     artists = []
+    # keep showing stored nodes
+    artists.extend(memorized_artists)
     for node in nodes:
       artists.append(node_patch(node, active=True, backward=True))
       for parent in node.parents:
@@ -234,18 +254,26 @@ def draw_animation():
     for artist in artists:
       ax.add_patch(artist)
 
-  cumulative_artistsequence = []
-  cumulative_artists = []
-  for artists in artistsequence:
-    cumulative_artists.extend(artists)
-    cumulative_artistsequence.append(list(cumulative_artists))
-  artistsequence = cumulative_artistsequence
-  
-  yuck.append(animation.ArtistAnimation(fig, artistsequence, interval=250, repeat_delay=3000, blit=True))
+  anim = animation.ArtistAnimation(fig, artistsequence, interval=100, repeat_delay=1000, blit=True)
   ax.set_aspect('equal', 'datalim')
   ax.autoscale(True)
 
+  # setting an outer scope variable from within a closure is STILL broken in python 3!
+  paused = [False]
+  def handle_key_press(event):
+    if event.key == " ":
+      if paused[0]:
+        anim.event_source.start()
+        paused[0] = False
+      else:
+        anim.event_source.stop()
+        paused[0] = True
+  fig.canvas.mpl_connect("key_press_event", handle_key_press)
+
+  # must keep reference to the animation object or it will die :/
+  return anim
+
 #draw_backward_subtree()
-draw_animation()
+anim = draw_animation()
 plt.tight_layout()
 plt.show()
