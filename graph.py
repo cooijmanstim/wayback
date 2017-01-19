@@ -44,11 +44,9 @@ class Node(object):
   def __repr__(self):
     return repr(self.x)
 
-def waybackprop_forward(states, periods):
+def waybackprop_forward(states, strides, length):
   states = list(states)
-  strides = np.concatenate([[1], np.cumprod(periods)[:-1]], axis=0)
-  T = int(np.prod(periods))
-  for x in range(T):
+  for x in range(length):
     for y, stride in reversed(list(enumerate(strides))):
       if x % stride != 0:
         # don't update this layer at this time
@@ -100,9 +98,10 @@ def schedule(nodes):
     left -= raa
   return schedule
 
-periods = np.array([3] * 3)
-initial_states = [Node((-1, y)) for y in range(len(periods))]
-final_states = waybackprop_forward(initial_states, periods)
+strides = np.array([1, 5, 25])
+length = 50
+initial_states = [Node((-stride, y)) for y, stride in enumerate(strides)]
+final_states = waybackprop_forward(initial_states, strides, length)
 
 # compute gradient of last state, irl would be gradient of loss which is an aggregate of statewise predictions
 loss = final_states[0]
