@@ -6,33 +6,36 @@ import matplotlib.patches as patches
 import matplotlib.animation as animation
 import seaborn
 
-
-scenario = "bptt"
-if scenario == "bptt":
-  truncate = False
-  strides = np.array([1])
+def main():
   length = 27
-elif scenario == "tbptt":
-  truncate = True
-  strides = np.array([1])
-  length = 27
-elif scenario == "msbptt":
-  truncate = False
-  strides = np.array([1, 3, 9])
-  length = 27
-elif scenario == "mstbptt":
-  truncate = True
-  strides = np.array([1, 3, 9])
-  length = 27
-  
+  scenario = "tbptt"
+  if scenario == "bptt":
+    model = Flat(depth=2, backprop_length=None)
+  elif scenario == "tbptt":
+    model = Flat(depth=2, backprop_length=9)
+  elif scenario == "msbptt":
+    model = Wayback(strides=[1, 3, 9], truncate=False)
+  elif scenario == "mstbptt":
+    model = Wayback(strides=[1, 3, 9], truncate=True)
+  initial_states = model.initial_states
+  final_states = model(initial_states, length)
+  loss = model.loss(final_states)
+  forwardnodes = loss.subtree
+  ymax = max(node.x[1] for node in forwardnodes)
+  backwardnodes = backward(loss, xoffset=np.array([-0.5, ymax + 2]))
+  schedule = do_schedule(set(forwardnodes) | set(backwardnodes))
+  anim = draw_animation(schedule)
+  plt.tight_layout()
+  plt.show()
 
 class Node(object):
-  def __init__(self, x):
+  def __init__(self, x, backward=False):
     self.x = x
     self.parents = set()
     self.children = set()
     self._ancestors = None
     self.constant = False
+    self.backward = backward
 
   def connect_from(self, parent):
     self.parents.add(parent)
@@ -52,22 +55,62 @@ class Node(object):
   def __repr__(self):
     return repr(self.x)
 
-def waybackprop_forward(states, strides, length, truncate=True):
-  states = list(states)
-  for x in range(length):
-    for y, stride in reversed(list(enumerate(strides))):
-      if x % stride != 0:
-        # don't update this layer at this time
-        continue
-      if truncate and y > 0:
-        # disconnect gradient on layer below
-        states[y - 1].constant = True
-      node = Node((x, y))
-      for dy in [-1, 0, 1]:
-        if 0 <= y + dy and y + dy < len(states):
-          node.connect_from(states[y + dy])
-      states[y] = node
-  return states
+class Flat(object):
+  def __init__(self, depth, backprop_length=None):
+    self.depth = depth
+    self.backprop_length = backprop_length
+
+  @property
+  def initial_states(self):
+    return [Node((-1, y)) for y in range(self.depth)]
+
+  def loss(self, states):
+    # pretend last top state is loss
+    return states[-1]
+
+  def __call__(self, states, length):
+    backprop_length = self.backprop_length or length # python sucks
+    states = list(states)
+    for x in range(length):
+      for y, _ in enumerate(states):
+        if length - x == backprop_length:
+          states[y].constant = True
+        node = Node((x, y))
+        for dy in [-1, 0]:
+          if 0 <= y + dy and y + dy < len(states):
+            node.connect_from(states[y + dy])
+        states[y] = node
+    return states
+
+class Wayback(object):
+  def __init__(self, strides, truncate=False):
+    self.strides = list(strides)
+    self.truncate = truncate
+
+  @property
+  def initial_states(self):
+    return [Node((-stride, y)) for y, stride in enumerate(self.strides)]
+
+  def loss(self, states):
+    # pretend last bottom state is loss
+    return states[0]
+
+  def __call__(self, states, length):
+    states = list(states)
+    for x in range(length):
+      for y, stride in reversed(list(enumerate(self.strides))):
+        if x % stride != 0:
+          # don't update this layer at this time
+          continue
+        if self.truncate and y > 0:
+          # disconnect gradient on layer below
+          states[y - 1].constant = True
+        node = Node((x, y))
+        for dy in [-1, 0, 1]:
+          if 0 <= y + dy and y + dy < len(states):
+            node.connect_from(states[y + dy])
+        states[y] = node
+    return states
 
 # construct backprop graph
 def backward(node, xoffset=0):
@@ -75,7 +118,7 @@ def backward(node, xoffset=0):
   def _backward(node, bparent=None):
     # backward node (computes gradient dL/dnode)
     if node.x not in bnodes:
-      bnodes[node.x] = Node(node.x + xoffset)
+      bnodes[node.x] = Node(node.x + xoffset, backward=True)
       new = True
     else:
       new = False
@@ -90,7 +133,7 @@ def backward(node, xoffset=0):
   _backward(node)
   return set(bnodes.values())
 
-def schedule(nodes):
+def do_schedule(nodes):
   unknown = ft.reduce(set.union, [node.ancestors for node in nodes], set(nodes))
   justknown = set()
   known = set()
@@ -111,21 +154,6 @@ def schedule(nodes):
       ((node, "forgotten") for node in forgotten))))
   return schedule
 
-
-print("forward...")
-initial_states = [Node((-stride, y)) for y, stride in enumerate(strides)]
-final_states = waybackprop_forward(initial_states, strides, length, truncate=truncate)
-# compute gradient of last state, irl would be gradient of loss which is an aggregate of statewise predictions
-loss = final_states[0]
-forwardnodes = loss.subtree
-
-print("backward...")
-backwardnodes = backward(loss, xoffset=np.array([-0.5, len(strides) + 1]))
-
-print("scheduling...")
-the_schedule = schedule(set(forwardnodes) | set(backwardnodes))
-
-radius = 0.25
 
 class Colors(object):
   darkblue = (0., 35/255., 61/255.)
@@ -148,6 +176,7 @@ def memo(f):
   return g
 
 saturations = dict(unknown=0.1, justknown=1., known=1., forgotten=0.5)
+radius = 0.25
 
 @memo
 def node_patch(node, state, backward=False, **kwargs):
@@ -187,16 +216,16 @@ def edge_patch(node_a, node_b, state, backward=False, **kwargs):
   assert not np.allclose(dx, 0)
   return patches.FancyArrow(a[0], a[1], dx[0], dx[1], **kwargs)
 
-def draw_animation():
+def draw_animation(schedule):
   fig, ax = plt.subplots(1)
   
   artistsequence = []
-  for states in the_schedule:
+  for states in schedule:
     artists = []
     for node, state in states.items():
-      artists.append(node_patch(node, state, backward=node in backwardnodes))
+      artists.append(node_patch(node, state, backward=node.backward))
       for parent in node.parents:
-        artists.append(edge_patch(parent, node, state, backward=node in backwardnodes))
+        artists.append(edge_patch(parent, node, state, backward=node.backward))
     artists = [a for a in artists if a is not None] # sigh, no no-op patch class
     artistsequence.append(artists)
 
@@ -229,8 +258,5 @@ def draw_animation():
   # must keep reference to the animation object or it will die :/
   return anim
 
-print("constructing animation...")
-anim = draw_animation()
-plt.tight_layout()
-print("show...")
-plt.show()
+if __name__ == "__main__":
+  main()
