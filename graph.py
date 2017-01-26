@@ -1,5 +1,5 @@
 from collections import defaultdict as ddict
-import functools as ft
+import functools as ft, itertools as it
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -17,18 +17,6 @@ class Node(object):
   def connect_from(self, parent):
     self.parents.add(parent)
     parent.children.add(self)
-
-  if False:
-    def __hash__(self):
-      return hash(self.x)
-  
-    def __eq__(self, other):
-      if not isinstance(other, Node):
-        return False
-      return self.x == other.x
-  
-    def __neq__(self, other):
-      return not self.eq(other)
 
   @property
   def ancestors(self):
@@ -62,89 +50,55 @@ def waybackprop_forward(states, strides, length):
   return states
 
 # construct backprop graph
-def backward(node, child=None):
-  bnode = Node(node.x)
-  if child is not None:
-    bnode.connect_from(child)
-  nodes = set([bnode])
-  if not node.constant:
-    for parent in node.parents:
-      nodes |= backward(parent, bnode)
-  return nodes
-
-# backward creates multiple nodes with the same x but different sets
-# of parents/children :-( merge these after the fact i guess
-def merge(nodes):
-  adjacency = ddict(set)
-  for node in nodes:
-    adjacency[node.x].update(p.x for p in node.parents)
-  newnodes = dict()
-  for a in adjacency.keys():
-    newnodes[a] = Node(a)
-  for a, bs in adjacency.items():
-    for b in bs:
-      newnodes[a].connect_from(newnodes[b])
-  return newnodes.values()
+def backward(node):
+  bnodes = dict()
+  def _get_bnode(x):
+    if x not in bnodes:
+      bnodes[x] = Node(x + np.array([0.5, 3]))
+    return bnodes[x]
+  def _backward(node, child=None):
+    # backward node (computes jacobian)
+    bnode = _get_bnode(node.x)
+    # function of forward activations
+    bnode.connect_from(node)
+    if child is not None:
+      bnode.connect_from(child)
+    if not node.constant:
+      for parent in node.parents:
+        _backward(parent, bnode)
+  _backward(node)
+  return set(bnodes.values())
 
 def schedule(nodes):
-  # toposort-like sequence of sets of nodes in order of earliest possible computation
-  left = ft.reduce(set.union, [node.ancestors for node in nodes], set(nodes))
-  done = set()
+  unknown = ft.reduce(set.union, [node.ancestors for node in nodes], set(nodes))
+  known = set()
+  forgotten = set()
   schedule = []
-  while left:
-    raa = set(node for node in left if node.parents <= done)
-    schedule.append(raa)
-    done |= raa
-    left -= raa
+  while unknown:
+    incoming = set(node for node in unknown if node.parents <= known)
+    unknown -= incoming
+    outgoing = set(node for node in known if not node.children & unknown)
+    known -= outgoing
+    known |= incoming
+    forgotten |= outgoing
+    schedule.append(dict(it.chain(
+      ((node,   "unknown") for node in   unknown),
+      ((node,     "known") for node in     known),
+      ((node, "forgotten") for node in forgotten))))
   return schedule
 
-strides = np.array([1, 5, 25])
-length = 50
+
+strides = np.array([1, 3, 9])
+length = 27
 initial_states = [Node((-stride, y)) for y, stride in enumerate(strides)]
 final_states = waybackprop_forward(initial_states, strides, length)
 
 # compute gradient of last state, irl would be gradient of loss which is an aggregate of statewise predictions
 loss = final_states[0]
 forwardnodes = loss.subtree
-#forwardschedule = schedule([loss])
+backwardnodes = backward(loss)
 
-# actually we don't want to compute according to schedule which computes
-# upper nodes as soon as their dependencies are available;
-# instead we want to go left-to-right top-to-bottom, time-major order
-# as it communicates the idea better.
-# basically exactly according to the algorithm that constructs the forward graph,
-# but let's hack up a new forwardschedule with that order.
-forwardschedule = [set([n]) for n in sorted(sorted(forwardnodes,
-                                                   key=lambda n: -n.x[1]),
-                                            key=lambda n: n.x[0])]
-
-backwardnodes = merge(backward(loss))
-#backwardschedule = schedule(backwardnodes)
-
-# similarly backwardschedule.
-backwardschedule = list(reversed([set([n]) for n in sorted(sorted(backwardnodes,
-                                                                  key=lambda n: -n.x[1]),
-                                                           key=lambda n: n.x[0])]))
-
-# nodes whose values are stored in memory; forward equivalents of backward nodes
-memorized_nodes = set(node for node in forwardnodes
-                      if any(bnode.x == node.x for bnode in backwardnodes))
-
-# cumulative forward schedule
-cfws = []
-cfwn = set()
-for nodes in forwardschedule:
-  cfwn |= nodes
-  cfws.append(set(cfwn))
-  # accumulate only stored nodes
-  #cfwn &= memorized_nodes
-
-# cumulative backward schedule
-cbws = []
-cbwn = set()
-for nodes in backwardschedule:
-  cbwn |= nodes
-  cbws.append(set(cbwn))
+the_schedule = schedule(set(forwardnodes) | set(backwardnodes))
 
 radius = 0.25
 
@@ -157,26 +111,31 @@ class Colors(object):
   lightmagenta = (221/255., 79/255., 112/255.)
   dullblue = seaborn.desaturate(blue, 0.)
   dulllightblue = seaborn.desaturate(lightblue, 0.)
+  dullmagenta = seaborn.desaturate(magenta, 0.)
+  dulllightmagenta = seaborn.desaturate(lightmagenta, 0.)
 
-def node_patch(node, active=True, backward=False, **kwargs):
+def node_patch(node, state, backward=False, **kwargs):
   kwargs.setdefault("radius", radius)
-  fc = Colors.dulllightblue
-  ec = Colors.dullblue
-  if active:
-    if backward:
-      fc = Colors.lightmagenta
-      ec = Colors.magenta
-    else:
-      fc = Colors.lightblue
-      ec = Colors.blue
-    if node.constant:
-      fc = Colors.aqua
+  if backward:
+    fc = dict(unknown=Colors.dulllightmagenta,
+              known=Colors.lightmagenta,
+              forgotten=Colors.dulllightmagenta)[state]
+    ec = dict(unknown=Colors.dullmagenta,
+              known=Colors.magenta,
+              forgotten=Colors.dullmagenta)[state]
+  else:
+    fc = dict(unknown=Colors.dulllightblue,
+              known=Colors.lightblue,
+              forgotten=Colors.dulllightblue)[state]
+    ec = dict(unknown=Colors.dullblue,
+              known=Colors.blue,
+              forgotten=Colors.dullblue)[state]
   kwargs["facecolor"] = fc
   kwargs["edgecolor"] = ec
-  return patches.Circle(node.x,
-                        **kwargs)
+  kwargs["zorder"] = 2
+  return patches.Circle(node.x, **kwargs)
 
-def edge_patch(node_a, node_b, active=True, backward=False, **kwargs):
+def edge_patch(node_a, node_b, state, backward=False, **kwargs):
   kwargs.setdefault("width", 0.00625)
   kwargs.setdefault("length_includes_head", True)
   a, b = np.asarray(node_a.x), np.asarray(node_b.x)
@@ -188,73 +147,32 @@ def edge_patch(node_a, node_b, active=True, backward=False, **kwargs):
   # shorten edge by 2 * radius to go from perimeter to perimeter
   dx = dx - 2 * radius * u
   color = Colors.dullblue
-  if active:
+  if state == "known":
     color = Colors.magenta if backward else Colors.blue
-  return patches.FancyArrow(a[0], a[1], dx[0], dx[1],
-                            facecolor=color,
-                            edgecolor=color,
-                            **kwargs)
-
-def draw_backward_subtree():
-  fig, ax = plt.subplots(1)
-  if not backwardnodes:
-    import pdb; pdb.set_trace()
-  # draw backward structure
-  for node in backwardnodes:
-    ax.add_patch(node_patch(node, active=False))
-    for parent in node.parents:
-      ax.add_patch(edge_patch(parent, node, active=False))
-  ax.set_aspect('equal', 'datalim')
-  ax.autoscale(True)
-  fig, ax = plt.subplots(1)
-  # draw backward structure
-  for nodes in backwardschedule:
-    for node in nodes:
-      ax.add_patch(node_patch(node, active=False))
-      for parent in node.parents:
-        ax.add_patch(edge_patch(parent, node, active=False))
-  ax.set_aspect('equal', 'datalim')
-  ax.autoscale(True)
+  kwargs["facecolor"] = color
+  kwargs["edgecolor"] = color
+  kwargs["zorder"] = 1
+  assert not np.allclose(dx, 0)
+  return patches.FancyArrow(a[0], a[1], dx[0], dx[1], **kwargs)
 
 def draw_animation():
   fig, ax = plt.subplots(1)
-  # draw inactive backdrop
-  for nodes in forwardschedule:
-    for node in nodes:
-      ax.add_patch(node_patch(node, active=False))
-      for parent in node.parents:
-        ax.add_patch(edge_patch(parent, node, active=False))
   
   # animate forward
   artistsequence = []
-  for nodes in cfws:
+  for states in the_schedule:
     artists = []
-    for node in nodes:
-      artists.append(node_patch(node, active=True))
+    for node, state in states.items():
+      artists.append(node_patch(node, state, backward=node in backwardnodes))
       for parent in node.parents:
-        artists.append(edge_patch(parent, node, active=True))
+        artists.append(edge_patch(parent, node, state, backward=node in backwardnodes))
+    artists = [a for a in artists if a is not None] # sigh, no no-op patch class
     artistsequence.append(artists)
     # associate artists with ax
     for artist in artists:
       ax.add_patch(artist)
 
-  memorized_artists = artistsequence[-1]
-
-  # animate backward
-  for nodes in cbws:
-    artists = []
-    # keep showing stored nodes
-    artists.extend(memorized_artists)
-    for node in nodes:
-      artists.append(node_patch(node, active=True, backward=True))
-      for parent in node.parents:
-        artists.append(edge_patch(parent, node, active=True, backward=True))
-    artistsequence.append(artists)
-    # associate artists with ax
-    for artist in artists:
-      ax.add_patch(artist)
-
-  anim = animation.ArtistAnimation(fig, artistsequence, interval=100, repeat_delay=1000, blit=True)
+  anim = animation.ArtistAnimation(fig, artistsequence, interval=500, repeat_delay=1000, blit=True)
   ax.set_aspect('equal', 'datalim')
   ax.autoscale(True)
 
