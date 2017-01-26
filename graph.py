@@ -313,7 +313,7 @@ def draw_animation(schedule, interactive=True, save_basename=None):
 
     plt.show()
   else:
-    anim.save("%s.gif" % save_basename, dpi=100, writer="imagemagick")
+    anim.save("%s.mp4" % save_basename, codec="libx264")
 
 if __name__ == "__main__":
   main()
