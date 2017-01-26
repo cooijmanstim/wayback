@@ -258,7 +258,7 @@ def draw_animation(schedule, interactive=True, save_basename=None):
   for artist in set(a for artists in artistsequence for a in artists):
     ax.add_patch(artist)
 
-  # set blit to False to get proper zorders https://github.com/matplotlib/matplotlib/issues/2959
+  # blit is fast but messes up zorders https://github.com/matplotlib/matplotlib/issues/2959
   anim = animation.ArtistAnimation(fig, artistsequence, interval=500, blit=interactive)
   ax.set_aspect('equal', 'datalim')
   ax.autoscale(True)
