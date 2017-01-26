@@ -176,7 +176,8 @@ class Colors(object):
   aqua = (111/255., 201/255., 198/255.)
   magenta = (194/255., 61/255., 87/255.)
   lightmagenta = (221/255., 79/255., 112/255.)
-  gold = "#ffab40"
+  lightgold = "#ffaa44"
+  gold = "#cc9933"
 
 # memo patch construction functions to avoid creating many duplicate patches.
 def memo(f):
@@ -190,15 +191,15 @@ def memo(f):
       return cache[key]
   return g
 
-saturations = dict(unknown=0.1, justknown=1., known=1., forgotten=0.5)
+saturations = dict(unknown=0.2, justknown=1., known=1., forgotten=0.5)
 radius = 0.25
 
 @memo
 def node_patch(node, state, **kwargs):
   kwargs.setdefault("radius", radius)
   if node.loss:
-    fc = seaborn.desaturate(Colors.gold, saturations[state])
-    ec = seaborn.desaturate(Colors.gold, saturations[state])
+    fc = seaborn.desaturate(Colors.lightgold, saturations[state])
+    ec = seaborn.desaturate(Colors.gold,      saturations[state])
   elif node.backward:
     fc = seaborn.desaturate(Colors.lightmagenta, saturations[state])
     ec = seaborn.desaturate(Colors.magenta,      saturations[state])
