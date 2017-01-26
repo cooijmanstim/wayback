@@ -50,20 +50,21 @@ def waybackprop_forward(states, strides, length):
   return states
 
 # construct backprop graph
-def backward(node):
+def backward(node, xoffset=0):
   bnodes = dict()
-  def _get_bnode(x):
-    if x not in bnodes:
-      bnodes[x] = Node(x + np.array([0.5, 3]))
-    return bnodes[x]
-  def _backward(node, child=None):
-    # backward node (computes jacobian)
-    bnode = _get_bnode(node.x)
-    # function of forward activations
-    bnode.connect_from(node)
-    if child is not None:
-      bnode.connect_from(child)
-    if not node.constant:
+  def _backward(node, bparent=None):
+    # backward node (computes gradient dL/dnode)
+    if node.x not in bnodes:
+      bnodes[node.x] = Node(node.x + xoffset)
+      new = True
+    else:
+      new = False
+    bnode = bnodes[node.x]
+    if new:
+      bnode.connect_from(node)
+    if bparent is not None:
+      bnode.connect_from(bparent)
+    if new and not node.constant:
       for parent in node.parents:
         _backward(parent, bnode)
   _backward(node)
@@ -91,13 +92,17 @@ def schedule(nodes):
 strides = np.array([1, 3, 9])
 length = 27
 initial_states = [Node((-stride, y)) for y, stride in enumerate(strides)]
-final_states = waybackprop_forward(initial_states, strides, length)
 
+print("forward...")
+final_states = waybackprop_forward(initial_states, strides, length)
 # compute gradient of last state, irl would be gradient of loss which is an aggregate of statewise predictions
 loss = final_states[0]
 forwardnodes = loss.subtree
-backwardnodes = backward(loss)
 
+print("backward...")
+backwardnodes = backward(loss, xoffset=np.array([-0.5, len(strides) + 1]))
+
+print("scheduling...")
 the_schedule = schedule(set(forwardnodes) | set(backwardnodes))
 
 radius = 0.25
@@ -172,6 +177,7 @@ def draw_animation():
     for artist in artists:
       ax.add_patch(artist)
 
+  # set blit to False to get proper zorders https://github.com/matplotlib/matplotlib/issues/2959
   anim = animation.ArtistAnimation(fig, artistsequence, interval=500, repeat_delay=1000, blit=True)
   ax.set_aspect('equal', 'datalim')
   ax.autoscale(True)
@@ -191,7 +197,8 @@ def draw_animation():
   # must keep reference to the animation object or it will die :/
   return anim
 
-#draw_backward_subtree()
+print("constructing animation...")
 anim = draw_animation()
 plt.tight_layout()
+print("show...")
 plt.show()
