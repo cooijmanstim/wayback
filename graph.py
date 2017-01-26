@@ -234,8 +234,10 @@ def edge_patch(node_a, node_b, state, backward=False, **kwargs):
   assert not np.allclose(dx, 0)
   return patches.FancyArrow(a[0], a[1], dx[0], dx[1], **kwargs)
 
-def draw_animation(schedule):
-  fig, ax = plt.subplots(1)
+def draw_animation(schedule, interactive=True, save_basename=None):
+  fig = plt.figure(frameon=False)
+  ax = fig.add_axes([0, 0, 1, 1])
+  ax.axis("off")
   
   artistsequence = []
   for states in schedule:
@@ -257,24 +259,28 @@ def draw_animation(schedule):
     ax.add_patch(artist)
 
   # set blit to False to get proper zorders https://github.com/matplotlib/matplotlib/issues/2959
-  anim = animation.ArtistAnimation(fig, artistsequence, interval=500, blit=True)
+  anim = animation.ArtistAnimation(fig, artistsequence, interval=500, blit=interactive)
   ax.set_aspect('equal', 'datalim')
   ax.autoscale(True)
 
-  # setting an outer scope variable from within a closure is STILL broken in python 3!
-  paused = [False]
-  def handle_key_press(event):
-    if event.key == " ":
-      if paused[0]:
-        anim.event_source.start()
-        paused[0] = False
-      else:
-        anim.event_source.stop()
-        paused[0] = True
-  fig.canvas.mpl_connect("key_press_event", handle_key_press)
+  fig.patch.set_visible(False)
 
-  # must keep reference to the animation object or it will die :/
-  return anim
+  if interactive:
+    # setting an outer scope variable from within a closure is STILL broken in python 3!
+    paused = [False]
+    def handle_key_press(event):
+      if event.key == " ":
+        if paused[0]:
+          anim.event_source.start()
+          paused[0] = False
+        else:
+          anim.event_source.stop()
+          paused[0] = True
+    fig.canvas.mpl_connect("key_press_event", handle_key_press)
+
+    plt.show()
+  else:
+    anim.save("%s.gif" % save_basename, dpi=100, writer="imagemagick")
 
 if __name__ == "__main__":
   main()
