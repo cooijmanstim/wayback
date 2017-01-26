@@ -33,13 +33,14 @@ def main():
   anim = draw_animation(schedule, interactive=args.interactive, save_basename=args.scenario)
 
 class Node(object):
-  def __init__(self, x, backward=False, loss=False):
+  def __init__(self, x, backward=False, loss=False, initial=False):
     self.x = tuple(x)
     self.parents = set()
     self.children = set()
     self.constant = False
     self.backward = backward
     self.loss = loss
+    self.initial = initial
 
   def connect_from(self, parent):
     self.parents.add(parent)
@@ -63,7 +64,7 @@ class Flat(object):
 
   @property
   def initial_states(self):
-    return [Node((-1, y)) for y in range(self.depth)]
+    return [Node((-1, y), initial=True) for y in range(self.depth)]
 
   def loss(self, states):
     output = states[-1]
@@ -76,7 +77,7 @@ class Flat(object):
     states = list(states)
     for x in range(length):
       for y, _ in enumerate(states):
-        if length - x == backprop_length:
+        if x == length - backprop_length:
           states[y].constant = True
         node = Node((x, y))
         for dy in [-1, 0]:
@@ -92,7 +93,7 @@ class Wayback(object):
 
   @property
   def initial_states(self):
-    return [Node((-stride, y)) for y, stride in enumerate(self.strides)]
+    return [Node((-stride, y), initial=True) for y, stride in enumerate(self.strides)]
 
   def loss(self, states):
     output = states[0]
@@ -121,6 +122,9 @@ class Wayback(object):
 def backward(node, xoffset=0):
   bnodes = dict()
   def _backward(node, bparent=None):
+    # don't show gradients wrt initial nodes
+    if node.initial:
+      return
     # backward node (computes gradient dL/dnode)
     if node.x not in bnodes:
       bnodes[node.x] = Node(node.x + xoffset, backward=True)
@@ -239,10 +243,11 @@ def draw_animation(schedule, interactive=True, save_basename=None):
   for states in schedule:
     artists = []
     for node, state in states.items():
+      if node.initial:
+        continue
       artists.append(node_patch(node, state))
       for parent in node.parents:
         artists.append(edge_patch(parent, node, state, backward=node.backward))
-    artists = [a for a in artists if a is not None] # sigh, no no-op patch class
     artistsequence.append(artists)
 
   # leave initial and final state in place for a few frames
