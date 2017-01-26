@@ -235,35 +235,66 @@ def edge_patch(node_a, node_b, state, backward=False, **kwargs):
   assert not np.allclose(dx, 0)
   return patches.FancyArrow(a[0], a[1], dx[0], dx[1], **kwargs)
 
+class Bbox(object):
+  def __init__(self):
+    self.min = np.array([np.inf, np.inf])
+    self.max = -self.min
+
+  def add(self, x):
+    self.min = np.minimum(x, self.min)
+    self.max = np.maximum(x, self.max)
+
+  def grow(self, dx):
+    self.min -= dx
+    self.max += dx
+
+  @property
+  def shape(self):
+    return tuple(self.max - self.min)
+
+  @property
+  def width(self):
+    return self.shape[0]
+
+  @property
+  def height(self):
+    return self.shape[1]
+
 def draw_animation(schedule, interactive=True, save_basename=None):
-  fig = plt.figure(frameon=False)
-  ax = fig.add_axes([0, 0, 1, 1])
-  ax.axis("off")
-  
+  bbox = Bbox()
   artistsequence = []
   for states in schedule:
     artists = []
     for node, state in states.items():
       if node.initial:
         continue
+      bbox.add(node.x)
       artists.append(node_patch(node, state))
       for parent in node.parents:
         artists.append(edge_patch(parent, node, state, backward=node.backward))
     artistsequence.append(artists)
+  bbox.grow(1)
 
   # leave initial and final state in place for a few frames
   for _ in range(5):
     artistsequence.insert(0, artistsequence[0])
     artistsequence.append(artistsequence[-1])
 
+  fig = plt.figure(frameon=False, figsize=bbox.shape)
+  ax = fig.add_axes([0, 0, 1, 1])
+  ax.axis("off")
+  
   # associate (unique) artists with ax
   for artist in set(a for artists in artistsequence for a in artists):
     ax.add_patch(artist)
 
   # blit is fast but messes up zorders https://github.com/matplotlib/matplotlib/issues/2959
-  anim = animation.ArtistAnimation(fig, artistsequence, interval=500, blit=interactive)
+  anim = animation.ArtistAnimation(fig, artistsequence, interval=500, repeat_delay=0, blit=interactive)
   ax.set_aspect('equal', 'datalim')
   ax.autoscale(True)
+
+  ax.set_xlim(bbox.min[0], bbox.max[0])
+  ax.set_ylim(bbox.min[1], bbox.max[1])
 
   fig.patch.set_visible(False)
 
