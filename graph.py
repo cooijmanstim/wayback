@@ -76,13 +76,13 @@ def schedule(nodes):
   known = set()
   forgotten = set()
   schedule = []
-  while unknown:
-    incoming = set(node for node in unknown if node.parents <= known)
-    outgoing = set(node for node in known if not node.children & unknown)
-    unknown -= incoming
-    known -= outgoing
+  while unknown or justknown or known:
     known |= justknown
+    incoming = set(node for node in unknown if node.parents <= known)
     justknown = incoming
+    unknown -= incoming
+    outgoing = set(node for node in known if not node.children & unknown)
+    known -= outgoing
     forgotten |= outgoing
     schedule.append(dict(it.chain(
       ((node,   "unknown") for node in   unknown),
