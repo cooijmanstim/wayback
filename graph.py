@@ -72,18 +72,21 @@ def backward(node, xoffset=0):
 
 def schedule(nodes):
   unknown = ft.reduce(set.union, [node.ancestors for node in nodes], set(nodes))
+  justknown = set()
   known = set()
   forgotten = set()
   schedule = []
   while unknown:
     incoming = set(node for node in unknown if node.parents <= known)
-    unknown -= incoming
     outgoing = set(node for node in known if not node.children & unknown)
+    unknown -= incoming
     known -= outgoing
-    known |= incoming
+    known |= justknown
+    justknown = incoming
     forgotten |= outgoing
     schedule.append(dict(it.chain(
       ((node,   "unknown") for node in   unknown),
+      ((node, "justknown") for node in justknown),
       ((node,     "known") for node in     known),
       ((node, "forgotten") for node in forgotten))))
   return schedule
@@ -114,10 +117,6 @@ class Colors(object):
   aqua = (111/255., 201/255., 198/255.)
   magenta = (194/255., 61/255., 87/255.)
   lightmagenta = (221/255., 79/255., 112/255.)
-  dullblue = seaborn.desaturate(blue, 0.)
-  dulllightblue = seaborn.desaturate(lightblue, 0.)
-  dullmagenta = seaborn.desaturate(magenta, 0.)
-  dulllightmagenta = seaborn.desaturate(lightmagenta, 0.)
 
 # memo patch construction functions to avoid creating many duplicate patches.
 def memo(f):
@@ -131,26 +130,22 @@ def memo(f):
       return cache[key]
   return g
 
+saturations = dict(unknown=0.1, justknown=1., known=1., forgotten=0.5)
+
 @memo
 def node_patch(node, state, backward=False, **kwargs):
   kwargs.setdefault("radius", radius)
   if backward:
-    fc = dict(unknown=Colors.dulllightmagenta,
-              known=Colors.lightmagenta,
-              forgotten=Colors.dulllightmagenta)[state]
-    ec = dict(unknown=Colors.dullmagenta,
-              known=Colors.magenta,
-              forgotten=Colors.dullmagenta)[state]
+    fc = seaborn.desaturate(Colors.lightmagenta, saturations[state])
+    ec = seaborn.desaturate(Colors.magenta,      saturations[state])
   else:
-    fc = dict(unknown=Colors.dulllightblue,
-              known=Colors.lightblue,
-              forgotten=Colors.dulllightblue)[state]
-    ec = dict(unknown=Colors.dullblue,
-              known=Colors.blue,
-              forgotten=Colors.dullblue)[state]
+    fc = seaborn.desaturate(Colors.lightblue, saturations[state])
+    ec = seaborn.desaturate(Colors.blue,      saturations[state])
   kwargs["facecolor"] = fc
   kwargs["edgecolor"] = ec
   kwargs["zorder"] = 2
+  if state in "known justknown".split():
+    kwargs["linewidth"] = 2
   return patches.Circle(node.x, **kwargs)
 
 @memo
@@ -165,12 +160,13 @@ def edge_patch(node_a, node_b, state, backward=False, **kwargs):
   a = a + radius * u
   # shorten edge by 2 * radius to go from perimeter to perimeter
   dx = dx - 2 * radius * u
-  color = Colors.dullblue
-  if state == "known":
-    color = Colors.magenta if backward else Colors.blue
+  color = Colors.magenta if backward else Colors.blue
+  color = seaborn.desaturate(color, saturations[state])
   kwargs["facecolor"] = color
   kwargs["edgecolor"] = color
   kwargs["zorder"] = 1
+  if state == "justknown":
+    kwargs["linewidth"] = 1
   assert not np.allclose(dx, 0)
   return patches.FancyArrow(a[0], a[1], dx[0], dx[1], **kwargs)
 
@@ -187,12 +183,17 @@ def draw_animation():
     artists = [a for a in artists if a is not None] # sigh, no no-op patch class
     artistsequence.append(artists)
 
+  # leave initial and final state in place for a few frames
+  for _ in range(5):
+    artistsequence.insert(0, artistsequence[0])
+    artistsequence.append(artistsequence[-1])
+
   # associate (unique) artists with ax
   for artist in set(a for artists in artistsequence for a in artists):
     ax.add_patch(artist)
 
   # set blit to False to get proper zorders https://github.com/matplotlib/matplotlib/issues/2959
-  anim = animation.ArtistAnimation(fig, artistsequence, interval=500, repeat_delay=1000, blit=True)
+  anim = animation.ArtistAnimation(fig, artistsequence, interval=500, blit=True)
   ax.set_aspect('equal', 'datalim')
   ax.autoscale(True)
 
