@@ -29,13 +29,14 @@ def main():
   plt.show()
 
 class Node(object):
-  def __init__(self, x, backward=False):
-    self.x = x
+  def __init__(self, x, backward=False, loss=False):
+    self.x = tuple(x)
     self.parents = set()
     self.children = set()
     self._ancestors = None
     self.constant = False
     self.backward = backward
+    self.loss = loss
 
   def connect_from(self, parent):
     self.parents.add(parent)
@@ -65,8 +66,10 @@ class Flat(object):
     return [Node((-1, y)) for y in range(self.depth)]
 
   def loss(self, states):
-    # pretend last top state is loss
-    return states[-1]
+    output = states[-1]
+    loss = Node(output.x + np.array([1, 0]), loss=True)
+    loss.connect_from(output)
+    return loss
 
   def __call__(self, states, length):
     backprop_length = self.backprop_length or length # python sucks
@@ -92,8 +95,10 @@ class Wayback(object):
     return [Node((-stride, y)) for y, stride in enumerate(self.strides)]
 
   def loss(self, states):
-    # pretend last bottom state is loss
-    return states[0]
+    output = states[0]
+    loss = Node(output.x + np.array([1, 0]), loss=True)
+    loss.connect_from(output)
+    return loss
 
   def __call__(self, states, length):
     states = list(states)
@@ -130,7 +135,12 @@ def backward(node, xoffset=0):
     if new and not node.constant:
       for parent in node.parents:
         _backward(parent, bnode)
+
+  # include a backward node for the loss (i.e. dL/dL, which is 1):
   _backward(node)
+  # don't include a backward node for the loss:
+  #for parent in node.parents:
+  #  _backward(parent, bparent=node)
   return set(bnodes.values())
 
 def do_schedule(nodes):
@@ -162,6 +172,7 @@ class Colors(object):
   aqua = (111/255., 201/255., 198/255.)
   magenta = (194/255., 61/255., 87/255.)
   lightmagenta = (221/255., 79/255., 112/255.)
+  gold = "#ffab40"
 
 # memo patch construction functions to avoid creating many duplicate patches.
 def memo(f):
@@ -179,9 +190,12 @@ saturations = dict(unknown=0.1, justknown=1., known=1., forgotten=0.5)
 radius = 0.25
 
 @memo
-def node_patch(node, state, backward=False, **kwargs):
+def node_patch(node, state, **kwargs):
   kwargs.setdefault("radius", radius)
-  if backward:
+  if node.loss:
+    fc = seaborn.desaturate(Colors.gold, saturations[state])
+    ec = seaborn.desaturate(Colors.gold, saturations[state])
+  elif node.backward:
     fc = seaborn.desaturate(Colors.lightmagenta, saturations[state])
     ec = seaborn.desaturate(Colors.magenta,      saturations[state])
   else:
@@ -223,7 +237,7 @@ def draw_animation(schedule):
   for states in schedule:
     artists = []
     for node, state in states.items():
-      artists.append(node_patch(node, state, backward=node.backward))
+      artists.append(node_patch(node, state))
       for parent in node.parents:
         artists.append(edge_patch(parent, node, state, backward=node.backward))
     artists = [a for a in artists if a is not None] # sigh, no no-op patch class
