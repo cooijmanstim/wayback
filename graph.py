@@ -6,6 +6,26 @@ import matplotlib.patches as patches
 import matplotlib.animation as animation
 import seaborn
 
+
+scenario = "bptt"
+if scenario == "bptt":
+  truncate = False
+  strides = np.array([1])
+  length = 27
+elif scenario == "tbptt":
+  truncate = True
+  strides = np.array([1])
+  length = 27
+elif scenario == "msbptt":
+  truncate = False
+  strides = np.array([1, 3, 9])
+  length = 27
+elif scenario == "mstbptt":
+  truncate = True
+  strides = np.array([1, 3, 9])
+  length = 27
+  
+
 class Node(object):
   def __init__(self, x):
     self.x = x
@@ -32,14 +52,14 @@ class Node(object):
   def __repr__(self):
     return repr(self.x)
 
-def waybackprop_forward(states, strides, length):
+def waybackprop_forward(states, strides, length, truncate=True):
   states = list(states)
   for x in range(length):
     for y, stride in reversed(list(enumerate(strides))):
       if x % stride != 0:
         # don't update this layer at this time
         continue
-      if y > 0:
+      if truncate and y > 0:
         # disconnect gradient on layer below
         states[y - 1].constant = True
       node = Node((x, y))
@@ -92,12 +112,9 @@ def schedule(nodes):
   return schedule
 
 
-strides = np.array([1, 3, 9])
-length = 27
-initial_states = [Node((-stride, y)) for y, stride in enumerate(strides)]
-
 print("forward...")
-final_states = waybackprop_forward(initial_states, strides, length)
+initial_states = [Node((-stride, y)) for y, stride in enumerate(strides)]
+final_states = waybackprop_forward(initial_states, strides, length, truncate=truncate)
 # compute gradient of last state, irl would be gradient of loss which is an aggregate of statewise predictions
 loss = final_states[0]
 forwardnodes = loss.subtree
