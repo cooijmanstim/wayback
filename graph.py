@@ -4,29 +4,33 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.animation as animation
-import seaborn
+import seaborn.apionly as seaborn
+import argparse
+
 
 def main():
   length = 27
-  scenario = "tbptt"
-  if scenario == "bptt":
-    model = Flat(depth=2, backprop_length=None)
-  elif scenario == "tbptt":
-    model = Flat(depth=2, backprop_length=9)
-  elif scenario == "msbptt":
-    model = Wayback(strides=[1, 3, 9], truncate=False)
-  elif scenario == "mstbptt":
-    model = Wayback(strides=[1, 3, 9], truncate=True)
+  models = dict(bptt=Flat(depth=2, backprop_length=None),
+                tbptt=Flat(depth=2, backprop_length=9),
+                msbptt=Wayback(strides=[1, 3, 9], truncate=False),
+                mstbptt=Wayback(strides=[1, 3, 9], truncate=True))
+
+  parser = argparse.ArgumentParser()
+  parser.add_argument("--scenario", choices=models.keys(), default="bptt")
+  parser.add_argument("--interactive", default=True, type=lambda s: dict(true=True, false=False)[s])
+  # matplotlib takes this and I can't get argparse to ignore it, so include it specifically:
+  parser.add_argument("--verbose-debug", action="store_true")
+  args = parser.parse_args()
+
+  model = models[args.scenario]
   initial_states = model.initial_states
   final_states = model(initial_states, length)
   loss = model.loss(final_states)
   forwardnodes = loss.subtree
   ymax = max(node.x[1] for node in forwardnodes)
-  backwardnodes = backward(loss, xoffset=np.array([-0.5, ymax + 2]))
+  backwardnodes = backward(loss, xoffset=np.array([-0.75, ymax + 2]))
   schedule = do_schedule(set(forwardnodes) | set(backwardnodes))
-  anim = draw_animation(schedule)
-  plt.tight_layout()
-  plt.show()
+  anim = draw_animation(schedule, interactive=args.interactive, save_basename=args.scenario)
 
 class Node(object):
   def __init__(self, x, backward=False, loss=False):
