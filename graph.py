@@ -26,7 +26,7 @@ def main():
   initial_states = model.initial_states
   final_states = model(initial_states, length)
   loss = model.loss(final_states)
-  forwardnodes = loss.subtree
+  forwardnodes = loss.ancestors
   ymax = max(node.x[1] for node in forwardnodes)
   backwardnodes = backward(loss, xoffset=np.array([-0.75, ymax + 2]))
   schedule = do_schedule(set(forwardnodes) | set(backwardnodes))
@@ -37,7 +37,6 @@ class Node(object):
     self.x = tuple(x)
     self.parents = set()
     self.children = set()
-    self._ancestors = None
     self.constant = False
     self.backward = backward
     self.loss = loss
@@ -48,14 +47,11 @@ class Node(object):
 
   @property
   def ancestors(self):
-    if self._ancestors is None:
-      self._ancestors = (set(self.parents) |
-                         set(a for p in self.parents for a in p.ancestors))
-    return set(self._ancestors)
-
-  @property
-  def subtree(self):
-    return set([self]) | set(self.ancestors)
+    # good enough
+    generations = [set([self])]
+    while generations[-1]:
+      generations.append(set(it.chain.from_iterable(ancestor.parents for ancestor in generations[-1])))
+    return set(it.chain.from_iterable(generations))
 
   def __repr__(self):
     return repr(self.x)
