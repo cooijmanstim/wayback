@@ -119,6 +119,19 @@ class Colors(object):
   dullmagenta = seaborn.desaturate(magenta, 0.)
   dulllightmagenta = seaborn.desaturate(lightmagenta, 0.)
 
+# memo patch construction functions to avoid creating many duplicate patches.
+def memo(f):
+  cache = dict()
+  def g(*args, **kwargs):
+    key = (args, frozenset(kwargs.items()))
+    try:
+      return cache[key]
+    except KeyError:
+      cache[key] = f(*args, **kwargs)
+      return cache[key]
+  return g
+
+@memo
 def node_patch(node, state, backward=False, **kwargs):
   kwargs.setdefault("radius", radius)
   if backward:
@@ -140,6 +153,7 @@ def node_patch(node, state, backward=False, **kwargs):
   kwargs["zorder"] = 2
   return patches.Circle(node.x, **kwargs)
 
+@memo
 def edge_patch(node_a, node_b, state, backward=False, **kwargs):
   kwargs.setdefault("width", 0.00625)
   kwargs.setdefault("length_includes_head", True)
@@ -163,7 +177,6 @@ def edge_patch(node_a, node_b, state, backward=False, **kwargs):
 def draw_animation():
   fig, ax = plt.subplots(1)
   
-  # animate forward
   artistsequence = []
   for states in the_schedule:
     artists = []
@@ -173,9 +186,10 @@ def draw_animation():
         artists.append(edge_patch(parent, node, state, backward=node in backwardnodes))
     artists = [a for a in artists if a is not None] # sigh, no no-op patch class
     artistsequence.append(artists)
-    # associate artists with ax
-    for artist in artists:
-      ax.add_patch(artist)
+
+  # associate (unique) artists with ax
+  for artist in set(a for artists in artistsequence for a in artists):
+    ax.add_patch(artist)
 
   # set blit to False to get proper zorders https://github.com/matplotlib/matplotlib/issues/2959
   anim = animation.ArtistAnimation(fig, artistsequence, interval=500, repeat_delay=1000, blit=True)
