@@ -2,6 +2,7 @@ import sys, numpy as np, tensorflow as tf
 from lib.namespace import Namespace as NS
 import lib.tfutil as tfutil
 import lib.util as util
+from lib.leftover import LEFTOVER
 
 class Evaluator(object):
   def __init__(self, model, hp):
@@ -30,7 +31,7 @@ class Evaluator(object):
 
     try:
       for batch in util.batches(examples, hp.batch_size):
-        for segment in util.segments(batch, 10000, overlap=hp.chunk_size):
+        for segment in util.segments(batch, 10000, overlap=LEFTOVER):
           if max_step_count is not None and state.step >= max_step_count:
             raise StopIteration()
 

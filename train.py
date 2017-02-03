@@ -33,7 +33,6 @@ def get_model_name(hp):
   fragments.append("bd%d" % hp.bit_depth)
   fragments.extend([
       hp.layout, hp.cell,
-      "c%d" % hp.chunk_size,
       "p%s" % ",".join(list(map(str, hp.periods))),
       "b%s" % ",".join(list(map(str, hp.boundaries))),
       "l%s" % ",".join(list(map(str, hp.layer_sizes))),

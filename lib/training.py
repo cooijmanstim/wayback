@@ -2,12 +2,12 @@ import numpy as np, tensorflow as tf, gc
 from lib.namespace import Namespace as NS
 import lib.tfutil as tfutil
 import lib.util as util
+from lib.leftover import LEFTOVER
 
 class Trainer(object):
   def __init__(self, model, hp, global_step=None):
     self.model = model
-    # (+1 because the last chunk is not processed)
-    self.segment_length = (self.model.boundary + 1) * hp.chunk_size
+    self.segment_length = self.model.boundary + LEFTOVER
     self.tensors = self._make(hp, global_step=global_step)
 
   def _make(self, hp, global_step=None):
@@ -60,7 +60,7 @@ class Trainer(object):
                model=self.model.initial_state(hp.batch_size))
     while True:
       for batch in util.batches(examples, hp.batch_size):
-        for segment in util.segments(batch, self.segment_length, overlap=hp.chunk_size):
+        for segment in util.segments(batch, self.segment_length, overlap=LEFTOVER):
           if max_step_count is not None and state.global_step >= max_step_count:
             return
 

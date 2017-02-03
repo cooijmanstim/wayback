@@ -19,7 +19,6 @@ schema = NS(
         io_sizes=("layer sizes for input and output MLPs", [512]),
         weight_decay=("L2 weight decay coefficient", 1e-7),
 
-        chunk_size=("number of samples per model step", 1),
         layout=("recurrent connection pattern (stack/wayback)", "stack"),
         cell=("recurrent cell (rnn/lstm/gru)", "lstm"),
         layer_sizes=("number of hidden units in each layer, from bottom to top.", [1000]),

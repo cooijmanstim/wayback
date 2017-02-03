@@ -4,6 +4,7 @@ import lib.cells as cells
 from lib.namespace import Namespace as NS
 import lib.tfutil as tfutil
 import lib.util as util
+from lib.leftover import LEFTOVER
 
 def construct(hp):
   activation = dict(tanh=tf.nn.tanh,
@@ -116,14 +117,12 @@ class BaseModel(object):
   def make_training_graph(self, x, length=None, context=None, model_state=None):
     """Make a graph to train the model by teacher-forcing.
 
-    `x` is processed in chunks of size determined by the hyperparameter
-    `chunk_size`. At step `i`, the model receives the `i`th nonoverlapping
-    chunk as input, and its output is used to predict the `i + 1`th chunk.
+    `x` is processed elementwise. At step `i`, the model receives the `i`th element as input, and
+    its output is used to predict the `i + 1`th element.
 
-    The last chunk is not processed, as there would be no further chunk
-    available to compare against and compute loss. To ensure all data is
-    processed during TBPTT, segments `x` fed into successive computations
-    of the graph should overlap by `chunk_size`.
+    The last element is not processed, as there would be no further element available to compare
+    against and compute loss. To ensure all data is processed during TBPTT, segments `x` fed into
+    successive computations of the graph should overlap by 1.
 
     Args:
       x: Sequence of integer (categorical) inputs, shaped [time, batch].
@@ -142,14 +141,12 @@ class BaseModel(object):
                             model_state=None):
     """Make a graph to evaluate the model.
 
-    `x` is processed in chunks of size determined by the hyperparameter
-    `chunk_size`. At step `i`, the model receives the `i`th nonoverlapping
-    chunk as input, and its output is used to predict the `i + 1`th chunk.
+    `x` is processed elementwise. At step `i`, the model receives the `i`th element as input, and
+    its output is used to predict the `i + 1`th element.
 
-    The last chunk is not processed, as there would be no further chunk
-    available to compare against and compute loss. To ensure all data is
-    processed, segments `x` fed into successive computations of the graph should
-    overlap by `chunk_size`.
+    The last element is not processed, as there would be no further element available to compare
+    against and compute loss. To ensure all data is processed during TBPTT, segments `x` fed into
+    successive computations of the graph should overlap by 1.
 
     Args:
       x: Sequence of integer (categorical) inputs, shaped [time, batch].
@@ -163,17 +160,16 @@ class BaseModel(object):
     return self._make_sequence_graph(x=x, model_state=model_state,
                                      length=length, context=context, hp=self.hp)
 
-  def make_sampling_graph(self, initial_xchunk, length, context=None, model_state=None, temperature=1.0):
+  def make_sampling_graph(self, initial_xelt, length, context=None, model_state=None, temperature=1.0):
     """Make a graph to sample from the model.
 
-    The graph generates a sequence `xhat` in chunks of size determined by the
-    hyperparameter `chunk_size`. At the first step, the model receives
-    `initial_xchunk` as input, and generates a chunk to follow it. The generated
-    chunk is used as input during the next time step. This process is repeated
-    until a sequence of the desired length has been generated.
+    The graph generates a sequence `xhat` one element at a time. At the first step, the model
+    receives `initial_xelt` as input, and generates an element to follow it. The generated element
+    is used as input during the next time step. This process is repeated until a sequence of the
+    desired length has been generated.
 
     Args:
-      initial_xchunk: Initial model input, shaped [chunk_size, batch].
+      initial_xelt: Initial model input, shaped [batch].
       length: Desired length of generated sequence.
       context: Optional Tensor denoting context, shaped [batch, ?].
       model_state: Initial state of the model.
@@ -182,7 +178,7 @@ class BaseModel(object):
     Returns:
       Namespace containing relevant symbolic variables.
     """
-    return self._make_sequence_graph(initial_xchunk=initial_xchunk,
+    return self._make_sequence_graph(initial_xelt=initial_xelt,
                                      model_state=model_state, length=length,
                                      context=context, temperature=temperature,
                                      hp=self.hp)
@@ -399,36 +395,33 @@ class Wayback(BaseModel):
       return super(Wayback, self)._make_sequence_graph(**kwargs)
 
   def _make_sequence_graph_with_unroll(self, model_state=None, x=None,
-                                       initial_xchunk=None, context=None,
+                                       initial_xelt=None, context=None,
                                        length=None, temperature=1.0, hp=None,
                                        back_prop=False):
     """Create a sequence graph by unrolling upper layers.
 
-    This method is similar to `_make_sequence_graph`, except that `length` must
-    be provided. The resulting graph behaves in the same way as that constructed
-    by `_make_sequence_graph`, except that the upper layers are outside of the
-    while loop and so the gradient can actually be truncated between runs of
-    lower layers.
+    This method is similar to `_make_sequence_graph`, except that `length` must be provided. The
+    resulting graph behaves in the same way as that constructed by `_make_sequence_graph`, except
+    that the upper layers are outside of the while loop and so the gradient can actually be
+    truncated between runs of lower layers.
 
-    If `x` is given, the graph processes the sequence `x` in chunks of size
-    determined by the hyperparameter `chunk_size`.  At step `i`, the model
-    receives the `i`th nonoverlapping chunk as input, and its output is used to
-    predict the `i + 1`th chunk.
+    If `x` is given, the graph processes the sequence `x` one element at a time.  At step `i`, the
+    model receives the `i`th element as input, and its output is used to predict the `i + 1`th
+    element.
 
-    The last chunk is not processed, as there would be no further chunk
-    available to compare against and compute loss. To ensure all data is
-    processed during TBPTT, segments `x` fed into successive computations
-    of the graph should overlap by `chunk_size`.
+    The last element is not processed, as there would be no further element available to compare
+    against and compute loss. To ensure all data is processed during TBPTT, segments `x` fed into
+    successive computations of the graph should overlap by 1.
 
-    If `x` is not given, `initial_xchunk` must be given as the first input
-    to the model.  Further chunks are constructed from the model's predictions.
+    If `x` is not given, `initial_xelt` must be given as the first input to the model.  Further
+    elements are constructed from the model's predictions.
 
     Args:
       model_state: initial state of the model.
       x: Sequence of integer (categorical) inputs. Not needed if sampling.
           Axes [time, batch].
-      initial_xchunk: When sampling, x is not given; initial_xchunk specifies
-          the input x[:chunk_size] to the first timestep.
+      initial_xelt: When sampling, x is not given; initial_xelt specifies
+          the input x[0] to the first timestep.
       context: a `Tensor` denoting context, e.g. for conditioning.
           Axes [batch, features].
       length: Optional length of sequence. Inferred from `x` if possible.
@@ -448,7 +441,7 @@ class Wayback(BaseModel):
     if model_state is None:
       model_state = self.state_placeholders()
 
-    state = NS(model=model_state, inner_initial_xchunk=initial_xchunk, xhats=[], losses=[], errors=[])
+    state = NS(model=model_state, inner_initial_xelt=initial_xelt, xhats=[], losses=[], errors=[])
 
     # i suspect ugly gradient biases may occur if gradients are truncated
     # somewhere halfway through the cycle. ensure we start at a cycle boundary.
@@ -457,23 +450,22 @@ class Wayback(BaseModel):
                                         [state.model.time],
                                         name="outer_alignment_assertion")
     # ensure we end at a cycle boundary too.
-    assert (length - hp.chunk_size) % (self.period * hp.chunk_size) == 0
+    assert (length - LEFTOVER) % self.period == 0
 
     inner_period = int(np.prod(hp.periods[:self.outer_indices[0] + 1]))
 
-    # determine truncation boundaries in terms of chunks;
-    # hp.boundaries specifies it relative to the end of the sequence
-    # and in terms of each layer's own steps. note that due to the
-    # dynamic unrolling of the inner graph, the inner layers
-    # necessarily get truncated at the topmost inner layer's boundary.
-    boundaries = [(length / hp.chunk_size) - 1 - hp.boundaries[i] * int(np.prod(hp.periods[:i + 1]))
+    # hp.boundaries specifies truncation boundaries relative to the end of the sequence and in terms
+    # of each layer's own steps; translate this to be relative to the beginning of the sequence and
+    # in terms of sequence elements. note that due to the dynamic unrolling of the inner graph, the
+    # inner layers necessarily get truncated at the topmost inner layer's boundary.
+    boundaries = [length - 1 - hp.boundaries[i] * int(np.prod(hp.periods[:i + 1]))
                   for i in range(len(hp.periods))]
-    assert all(0 <= boundary and boundary * hp.chunk_size < length - hp.chunk_size for boundary in boundaries)
+    assert all(0 <= boundary and boundary < length - LEFTOVER for boundary in boundaries)
     assert boundaries == list(reversed(sorted(boundaries)))
 
-    print "chunky length %s periods %s boundaries %s %s inner period %s" % (length / hp.chunk_size, hp.periods, hp.boundaries, boundaries, inner_period)
+    print "length %s periods %s boundaries %s %s inner period %s" % (length, hp.periods, hp.boundaries, boundaries, inner_period)
 
-    outer_step_count = length // (hp.chunk_size * inner_period)
+    outer_step_count = length // inner_period
     for outer_time in range(outer_step_count):
       if outer_time > 0:
         tf.get_variable_scope().reuse_variables()
@@ -495,8 +487,8 @@ class Wayback(BaseModel):
       if x is None:
         inner_x = None
       else:
-        start = inner_period * hp.chunk_size * outer_time
-        stop = inner_period * hp.chunk_size * (outer_time + 1) + hp.chunk_size
+        start = inner_period *  outer_time
+        stop  = inner_period * (outer_time + 1) + LEFTOVER
         inner_x = x[start:stop, :]
 
       # grab a copy of the outer states. they will not be updated in the inner
@@ -518,16 +510,16 @@ class Wayback(BaseModel):
       inner_back_prop = back_prop and outer_time * inner_period >= boundaries[self.inner_indices[-1]]
       inner_ts = _make_sequence_graph(
           transition=_inner_transition, model_state=state.model,
-          x=inner_x, initial_xchunk=state.inner_initial_xchunk,
+          x=inner_x, initial_xelt=state.inner_initial_xelt,
           temperature=temperature, hp=hp,
           back_prop=inner_back_prop)
 
       state.model = inner_ts.final_state.model
-      state.inner_initial_xchunk = inner_ts.final_xchunk if x is not None else inner_ts.final_xhatchunk
-      state.final_xhatchunk = inner_ts.final_xhatchunk
+      state.inner_initial_xelt = inner_ts.final_xelt if x is not None else inner_ts.final_xhatelt
+      state.final_xhatelt = inner_ts.final_xhatelt
       if x is not None:
         state.final_x = inner_x
-        state.final_xchunk = inner_ts.final_xchunk
+        state.final_xelt = inner_ts.final_xelt
         # track only losses and errors after the boundary to avoid bypassing the truncation boundary.
         if inner_back_prop:
           state.losses.append(inner_ts.loss)
@@ -545,42 +537,40 @@ class Wayback(BaseModel):
 
     ts = NS()
     ts.xhat = tf.concat(0, state.xhats)
-    ts.final_xhatchunk = state.final_xhatchunk
+    ts.final_xhatelt = state.final_xhatelt
     ts.final_state = state
     if x is not None:
       ts.final_x = state.final_x
-      ts.final_xchunk = state.final_xchunk
+      ts.final_xelt = state.final_xelt
       # inner means are all on the same sample size, so taking their mean is valid
       ts.loss = tf.reduce_mean(state.losses)
       ts.error = tf.reduce_mean(state.errors)
     return ts
 
 def _make_sequence_graph(transition=None, model_state=None, x=None,
-                         initial_xchunk=None, context=None, length=None,
+                         initial_xelt=None, context=None, length=None,
                          temperature=1.0, hp=None, back_prop=False):
   """Construct the graph to process a sequence of categorical integers.
 
-  If `x` is given, the graph processes the sequence `x` in chunks of size
-  determined by the hyperparameter `chunk_size`.  At step `i`, the model
-  receives the `i`th nonoverlapping chunk as input, and its output is used to
-  predict the `i + 1`th chunk.
+  If `x` is given, the graph processes the sequence `x` one element at a time.  At step `i`, the
+  model receives the `i`th element as input, and its output is used to predict the `i + 1`th
+  element.
 
-  The last chunk is not processed, as there would be no further chunk
-  available to compare against and compute loss. To ensure all data is
-  processed during TBPTT, segments `x` fed into successive computations
-  of the graph should overlap by `chunk_size`.
+  The last element is not processed, as there would be no further element available to compare
+  against and compute loss. To ensure all data is processed during TBPTT, segments `x` fed into
+  successive computations of the graph should overlap by 1.
 
-  If `x` is not given, `initial_xchunk` must be given as the first input
-  to the model.  Further chunks are constructed from the model's predictions.
+  If `x` is not given, `initial_xelt` must be given as the first input to the model.  Further
+  elements are constructed from the model's predictions.
 
   Args:
-    transition: model transition function mapping (xchunk, model_state,
+    transition: model transition function mapping (xelt, model_state,
         context) to (output, new_model_state).
     model_state: initial state of the model.
     x: Sequence of integer (categorical) inputs. Not needed if sampling.
         Axes [time, batch].
-    initial_xchunk: When sampling, x is not given; initial_xchunk specifies
-        the input x[:chunk_size] to the first timestep.
+    initial_xelt: When sampling, x is not given; initial_xelt specifies
+        the input x[0] to the first timestep.
     context: a `Tensor` denoting context, e.g. for conditioning.
     length: Optional length of sequence. Inferred from `x` if possible.
     temperature: Softmax temperature to use for sampling.
@@ -599,11 +589,6 @@ def _make_sequence_graph(transition=None, model_state=None, x=None,
     if length is None:
       length = tf.shape(x)[0]
 
-    chunk_assertion = tf.Assert(tf.equal(length % hp.chunk_size, 0), [length, hp.chunk_size], name="chunk_assertion")
-    with tf.control_dependencies([chunk_assertion]):
-      length = tf.identity(length)
-    chunk_count = length // hp.chunk_size
-
     def _make_ta(name, **kwargs):
       # infer_shape=False because it is too strict; it considers unknown
       # dimensions to be incompatible with anything else. Effectively that
@@ -613,17 +598,15 @@ def _make_sequence_graph(transition=None, model_state=None, x=None,
     state = NS(i=tf.constant(0), model=model_state)
 
     state.xhats = _make_ta("xhats", dtype=tf.int32, size=length, clear_after_read=False)
-    # populate the initial chunk of xhats
-    state.xhats = _put_chunk(state.xhats, 0, tf.unpack((initial_xchunk if x is None else x)[:hp.chunk_size, :],
-                                                       num=hp.chunk_size))
+    state.xhats = state.xhats.write(0, initial_xelt if x is None else x[0, :])
 
-    state.exhats = _make_ta("exhats", dtype=tf.float32, size=length - hp.chunk_size)
+    state.exhats = _make_ta("exhats", dtype=tf.float32, size=length - LEFTOVER)
 
     if x is not None:
-      state.losses = _make_ta("losses", dtype=tf.float32, size=length - hp.chunk_size)
-      state.errors = _make_ta("errors", dtype=tf.bool,    size=length - hp.chunk_size)
+      state.losses = _make_ta("losses", dtype=tf.float32, size=length - LEFTOVER)
+      state.errors = _make_ta("errors", dtype=tf.bool,    size=length - LEFTOVER)
 
-    state = tfutil.while_loop(cond=lambda state: state.i < chunk_count - 1,
+    state = tfutil.while_loop(cond=lambda state: state.i < length - LEFTOVER,
                               body=ft.partial(make_transition_graph,
                                               transition=transition, x=x, context=context,
                                               temperature=temperature, hp=hp),
@@ -637,14 +620,14 @@ def _make_sequence_graph(transition=None, model_state=None, x=None,
 
     ts = NS()
     ts.final_state = state
-    ts.xhat = state.xhats[hp.chunk_size:, :]
-    ts.final_xhatchunk = _get_chunk(state.xhats, length - hp.chunk_size, hp.chunk_size)
+    ts.xhat = state.xhats[1:, :]
+    ts.final_xhatelt = state.xhats[length - 1, :]
     if x is not None:
       ts.loss = tf.reduce_mean(state.losses)
       ts.error = tf.reduce_mean(tf.to_float(state.errors))
       ts.final_x = x
-      # expose the final, unprocessed chunk of x for convenience
-      ts.final_xchunk = _get_chunk(x, length - hp.chunk_size, hp.chunk_size)
+      # expose the final, unprocessed element of x for convenience
+      ts.final_xelt = x[length - 1, :]
     return ts
 
 def make_transition_graph(state, transition, x=None, context=None,
@@ -653,7 +636,7 @@ def make_transition_graph(state, transition, x=None, context=None,
 
   Args:
     state: `_make_sequence_graph` loop state.
-    transition: Model transition function mapping (xchunk, model_state,
+    transition: Model transition function mapping (xelt, model_state,
         context) to (output, new_model_state).
     x: Sequence of integer (categorical) inputs. Axes [time, batch].
     context: Optional Tensor denoting context, shaped [batch, ?].
@@ -665,59 +648,22 @@ def make_transition_graph(state, transition, x=None, context=None,
   """
   state = NS.Copy(state)
 
-  xchunk = _get_flat_chunk(state.xhats if x is None else x,
-                           state.i * hp.chunk_size, hp.chunk_size,
-                           depth=hp.data_dim)
-  embedding = tfutil.layers([xchunk], sizes=hp.io_sizes, use_bn=hp.use_bn)
+  xelt = state.xhats.get(state.i) if x is None else x[state.i, :]
+  embedding = tfutil.layers([xelt], sizes=hp.io_sizes, use_bn=hp.use_bn)
   h, state.model = transition(embedding, state.model, context=context)
 
-  # predict the next chunk
-  exhats = []
+  # predict the next elt
   with tf.variable_scope("xhat") as scope:
-    for j in range(hp.chunk_size):
-      if j > 0:
-        scope.reuse_variables()
-
-      xchunk = _get_flat_chunk(state.xhats if x is None else x,
-                               state.i * hp.chunk_size + j, hp.chunk_size,
-                               depth=hp.data_dim)
-      embedding = tfutil.layers([h, xchunk], sizes=hp.io_sizes, use_bn=hp.use_bn)
-      exhat = tfutil.project(embedding, output_dim=hp.data_dim)
-      exhats.append(exhat)
-
-      state.xhats = state.xhats.write((state.i + 1) * hp.chunk_size + j,
-                                      tfutil.sample(exhat, temperature))
+    embedding = tfutil.layers([h], sizes=hp.io_sizes, use_bn=hp.use_bn)
+    exhat = tfutil.project(embedding, output_dim=hp.data_dim)
+    xhat = tfutil.sample(exhat, temperature)
+    state.xhats = state.xhats.write(state.i + LEFTOVER, xhat)
 
   if x is not None:
-    targets = tf.unpack(_get_1hot_chunk(x, (state.i + 1) * hp.chunk_size,
-                                        hp.chunk_size, depth=hp.data_dim),
-                        num=hp.chunk_size, axis=1)
-    state.losses = _put_chunk(state.losses, state.i * hp.chunk_size,
-                              [tf.nn.softmax_cross_entropy_with_logits(exhat, target)
-                               for exhat, target in util.equizip(exhats, targets)])
-    state.errors = _put_chunk(state.errors, state.i * hp.chunk_size,
-                              [tf.not_equal(tf.nn.top_k(exhat)[1], tf.nn.top_k(target)[1])
-                               for exhat, target in util.equizip(exhats, targets)])
-    state.exhats = _put_chunk(state.exhats, state.i * hp.chunk_size, exhats)
+    target = tfutil.shaped_one_hot(x[state.i + 1], [None, depth])
+    state.losses = state.losses.write(state.i, tf.nn.softmax_cross_entropy_with_logits(exhat, target))
+    state.errors = state.errors.write(state.i, tf.not_equal(tf.nn.top_k(exhat)[1], tf.nn.top_k(target)[1]))
+    state.exhats = state.exhats.write(state.i, exhat)
 
   state.i += 1
   return state
-
-def _get_chunk(array, start, size):
-  if isinstance(array, tf.Tensor):
-    return tf.slice(array, tf.pack([start, 0]), tf.pack([size, tf.shape(array)[1]]))
-  elif isinstance(array, tf.TensorArray):
-    return tf.pack([array.read(start + j) for j in range(size)])
-  else:
-    assert False
-
-def _get_1hot_chunk(array, start, size, depth):
-  return tfutil.shaped_one_hot(tf.transpose(_get_chunk(array, start, size)), [None, size, depth])
-
-def _get_flat_chunk(array, start, size, depth):
-  return tf.reshape(_get_1hot_chunk(array, start, size, depth), [-1, size * depth])
-
-def _put_chunk(array, start, values):
-  for j, value in enumerate(values):
-    array = array.write(start + j, value)
-  return array
