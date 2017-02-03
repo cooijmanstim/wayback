@@ -26,7 +26,9 @@ class Trainer(object):
     ts.params = tf.trainable_variables()
     print [param.name for param in ts.params]
 
-    ts.gradients = tf.gradients(ts.loss, ts.params)
+    ts.gradients = tf.gradients(ts.loss, ts.params,
+                                # secret memory-conserving sauce
+                                aggregation_method=tf.AggregationMethod.EXPERIMENTAL_TREE)
 
     loose_params = [param for param, gradient in util.equizip(ts.params, ts.gradients) if gradient is None]
     if loose_params:
