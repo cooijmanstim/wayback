@@ -129,8 +129,8 @@ def main(argv):
   def after_step_hook(state, values):
     for summary in values.summaries:
       supervisor.summary_computed(session, summary)
-    # decay learning rate based on training loss (we're trying to overfit)
-    track(values.loss, state.global_step)
+    # track training loss
+    #track(values.loss, state.global_step)
 
   print "training."
   try:
