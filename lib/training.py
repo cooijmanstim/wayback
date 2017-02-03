@@ -42,13 +42,13 @@ class Trainer(object):
                                                   global_step=ts.global_step)
 
     ts.summaries = [
-        tf.scalar_summary("loss_train", ts.loss),
-        tf.scalar_summary("error_train", ts.error),
-        tf.scalar_summary("learning_rate", ts.learning_rate)
+        tf.summary.scalar("loss_train", ts.loss),
+        tf.summary.scalar("error_train", ts.error),
+        tf.summary.scalar("learning_rate", ts.learning_rate)
     ]
     for parameter, gradient in util.equizip(ts.params, ts.gradients):
-      ts.summaries.append(tf.scalar_summary("meanlogabs_%s"     % parameter.name, tfutil.meanlogabs(parameter)))
-      ts.summaries.append(tf.scalar_summary("meanlogabsgrad_%s" % parameter.name, tfutil.meanlogabs(gradient)))
+      ts.summaries.append(tf.summary.scalar("meanlogabs_%s"     % parameter.name, tfutil.meanlogabs(parameter)))
+      ts.summaries.append(tf.summary.scalar("meanlogabsgrad_%s" % parameter.name, tfutil.meanlogabs(gradient)))
 
     return ts
 
