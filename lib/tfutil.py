@@ -196,7 +196,8 @@ def sample(logits, temperature=1.0):
   return index
 
 def run(session, tensors, **run_kwargs):
-  trace = True
+  # too damn big
+  trace = False
 
   if trace:
     run_metadata = tf.RunMetadata()
@@ -208,7 +209,7 @@ def run(session, tensors, **run_kwargs):
   if trace:
     from tensorflow.python.client import timeline
     trace = timeline.Timeline(step_stats=run_metadata.step_stats)
-    with open("timeline_%s.json" % "_".join(".".join(key for key in tensors.Keys())), "w") as trace_file:
+    with open("timeline_%s.json" % "_".join(".".join(map(str, key)) for key in tensors.Keys()), "w") as trace_file:
       trace_file.write(trace.generate_chrome_trace_format())
 
   return values
