@@ -648,7 +648,8 @@ def make_transition_graph(state, transition, x=None, context=None,
   """
   state = NS.Copy(state)
 
-  xelt = state.xhats.get(state.i) if x is None else x[state.i, :]
+  xelt = tfutil.shaped_one_hot(state.xhats.read(state.i) if x is None else x[state.i, :],
+                               [None, hp.data_dim])
   embedding = tfutil.layers([xelt], sizes=hp.io_sizes, use_bn=hp.use_bn)
   h, state.model = transition(embedding, state.model, context=context)
 
@@ -660,7 +661,7 @@ def make_transition_graph(state, transition, x=None, context=None,
     state.xhats = state.xhats.write(state.i + LEFTOVER, xhat)
 
   if x is not None:
-    target = tfutil.shaped_one_hot(x[state.i + 1], [None, depth])
+    target = tfutil.shaped_one_hot(x[state.i + 1], [None, hp.data_dim])
     state.losses = state.losses.write(state.i, tf.nn.softmax_cross_entropy_with_logits(exhat, target))
     state.errors = state.errors.write(state.i, tf.not_equal(tf.nn.top_k(exhat)[1], tf.nn.top_k(target)[1]))
     state.exhats = state.exhats.write(state.i, exhat)
