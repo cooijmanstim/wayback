@@ -37,8 +37,9 @@ class Sampler(object):
       x, = util.examples_as_arrays(segment)
       feed_dict = {self.tensors.x: x.T}
       feed_dict.update(self.model.feed_dict(state.model))
-      values = NS.FlatCall(ft.partial(session.run, feed_dict=feed_dict),
-                           self.tensors.cond.Extract("final_state.model final_xelt"))
+      values = tfutil.run(session,
+                          tensors=self.tensors.cond.Extract("final_state.model final_xelt"),
+                          feed_dict=feed_dict)
       state.model = values.final_state.model
       sys.stderr.write(".")
     sys.stderr.write("\n")
@@ -58,8 +59,9 @@ class Sampler(object):
                    self.tensors.length: segment_length,
                    self.tensors.temperature: temperature}
       feed_dict.update(self.model.feed_dict(state.model))
-      sample_values = NS.FlatCall(ft.partial(session.run, feed_dict=feed_dict),
-                                  self.tensors.sample.Extract("final_state.model xhat final_xhatelt"))
+      sample_values = tfutil.run(session,
+                                 tensors=self.tensors.sample.Extract("final_state.model xhat final_xhatelt"),
+                                 feed_dict=feed_dict),
       state.model = sample_values.final_state.model
       state.initial_xelt = sample_values.final_xhatelt
 
