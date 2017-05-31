@@ -14,7 +14,7 @@ memory budget.
 To train a deep LSTM, run
 
 ```shell
-blaze run -- train
+python train
   --data_dir /path/to/data
   --base_output_dir /tmp/stack
   --resume false
@@ -142,7 +142,7 @@ The `--hyperparameters` flag specifies the values of the model hyperparameters:
 To train a wayback model, run
 
 ```shell
-blaze run -- train
+python train
   --data_dir /path/to/data
   --base_output_dir /tmp/models
   --resume false
@@ -202,7 +202,7 @@ The wayback layout takes three additional hyperparameters:
 To sample from a trained model, run:
 
 ```shell
-blaze run -- sample
+python sample
   --model_ckpt /path/to/model.ckpt
   --model_hyperparameters /path/to/hyperparameters.yaml
   --base_output_path /path/to/output
