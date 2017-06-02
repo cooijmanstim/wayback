@@ -1,7 +1,5 @@
 # Waybackpropagation through time
 
-![https://magenta.tensorflow.org/assets/waybackprop/mstbptt.gif]
-
 This tree contains code to train and sample from teacher-forcing models. The
 code was developed to support ongoing research on audio synthesis on the
 waveform level.
