@@ -1,5 +1,7 @@
 # Waybackpropagation through time
 
+![https://magenta.tensorflow.org/assets/waybackprop/mstbptt.gif]
+
 This tree contains code to train and sample from teacher-forcing models. The
 code was developed to support ongoing research on audio synthesis on the
 waveform level.
@@ -8,6 +10,11 @@ In particular, I explored "waybackpropagation through time": the use of
 multi-scale recurrent connection patterns in combination with truncated
 backpropagation to learn exponentially longer dependencies given a constant
 memory budget.
+
+I describe the work and its context in more detail on the
+[Magenta blog](https://magenta.tensorflow.org/blog/2017/06/01/waybackprop/).
+The animations in the blog post were made using the code under the
+`animations` directory.
 
 ## Training
 
