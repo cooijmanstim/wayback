@@ -191,7 +191,7 @@ def memo(f):
       return cache[key]
   return g
 
-saturations = dict(unknown=0.2, justknown=1., known=1., forgotten=0.5)
+saturations = dict(unknown=0.1, justknown=1., known=1., forgotten=0.5)
 radius = 0.25
 
 @memo
