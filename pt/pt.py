@@ -3,7 +3,7 @@ import functools as ft, itertools as it
 from collections import OrderedDict as ordict
 import numpy as np
 import torch
-import torch.nn.init as init
+import torch.nn.init as initializers
 import torch.nn.functional as func
 from torch.autograd import Variable
 
@@ -16,7 +16,7 @@ class Parameters(object):
   def get(self, name, shape, init_fn):
     name = ".".join(self.prefixes + [name])
     if name in self.parameters:
-      if shape != self.parameters[name].size():
+      if shape != list(self.parameters[name].size()):
         raise ValueError("attempt to recreate parameter with different shape (old: %s new: %s)"
                          % (self.parameters[name].size(), shape))
     else:
@@ -27,7 +27,8 @@ class Parameters(object):
       parameter = Variable(ugh, requires_grad=True)
       parameter.name = name
       self.parameters[name] = parameter
-      print(name)
+      print(name, "x".join(map(str, shape)))
+    assert not np.isnan(self.parameters[name].data.numpy()).any()
     return self.parameters[name]
 
   def __iter__(self):
@@ -58,7 +59,7 @@ class Parameters(object):
   def namespaced(self, fn):
     def namespaced_fn(*args, **kwargs):
       if "scope" in kwargs:
-        with PP.namespace(kwargs.pop("scope")):
+        with self.namespace(kwargs.pop("scope")):
           return fn(*args, **kwargs)
       else:
         return fn(*args, **kwargs)
@@ -73,33 +74,46 @@ def parameters():
   yield P
   P, oldP = oldP, None
 
-def standardize(x, epsilon=1e-6):
-  x -= x.mean(dim=-1).expand_as(x)
-  x /= x.norm(dim=-1).expand_as(x) + epsilon
-  return x
+def standardize(x, epsilon=1, dim=-1):
+  #mean = x.mean(dim=dim)
+  #x = x - mean.expand_as(x)
+  #var = x.norm(dim=dim)
+  #x = x / (var + epsilon).expand_as(x)
+  #x /= x.norm(dim=dim).expand_as(x) + epsilon
+  #x /= ((x ** 2).sum(dim=dim) + epsilon).sqrt().expand_as(x)
 
-@P.namespaced
+  # ok fuck it, everything keeps exploding, let the network figure it out
+  with P.namespace("standardize"):
+    return scale(bias(x))
+
+def namespaced(fn):
+  def wrapped_fn(*args, **kwargs):
+    return P.namespaced(fn)(*args, **kwargs)
+  return wrapped_fn
+
+@namespaced
 def scale(x, dim=-1, init=1):
-  g = P.get("g", [x.size()[dim]], ft.partial(init.constant, val=init))
+  g = P.get("g", [x.size()[dim]], ft.partial(initializers.constant, val=init))
   return g.expand_as(x) * x
 
-@P.namespaced
+@namespaced
 def bias(x, dim=-1, init=0):
-  b = P.get("b", [x.size()[dim]], ft.partial(init.constant, val=init))
+  b = P.get("b", [x.size()[dim]], ft.partial(initializers.constant, val=init))
   return b.expand_as(x) + x
 
-@P.namespaced
+@namespaced
 def linear(*xs, dim=None):
   assert dim is not None
   x = torch.cat(xs, dim=-1)
-  w = P.get("w", [x.size()[-1], dim], init.orthogonal)
-  return F.linear(x, w.t())
+  w = P.get("w", [x.size()[-1], dim], initializers.orthogonal)
+  return func.linear(x, w.t())
 
-@P.namespaced
+@namespaced
 def affine(*xs, dim=None, normalized=False):
   assert dim is not None
   if normalized:
-    return bias(sum(scale(standardize(linear(x, dim=dim, scope=str(i))), init=0.1)
+    return bias(sum(scale(standardize(linear(x, dim=dim, scope=str(i))),
+                          init=0.1, scope=str(i))
                     for i, x in enumerate(xs)))
   else:
     x = torch.cat(xs, dim=-1)
@@ -118,7 +132,7 @@ def sample(p, dim=None, temperature=1, onehotted=False):
   cmf = p.cumsum(dim=dim)
   totalmasses = cmf[tuple(slice(None) if d != dim else slice(-1, None) for d in range(cmf.ndimension()))]
   u = np.random.random([p.size()[d] if d != dim else 1 for d in range(p.ndimension())])
-  _, i = (Tensor(u).expand_as(cmf) * totalmasses.expand_as(cmf) < cmf).max(dim=dim)
+  _, i = (torch.Tensor(u).expand_as(cmf) * totalmasses.expand_as(cmf) < cmf).max(dim=dim)
   i = i.squeeze(dim)
 
   return onehot(i, dim=dim, depth=p.size()[dim]) if onehot else i
