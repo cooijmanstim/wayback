@@ -1,4 +1,5 @@
 import contextlib, time
+import numpy as np
 
 def bouillon(s):
   if s.lowercase() in "1 t true".split():
@@ -96,5 +97,35 @@ def segments(examples, length, overlap=0, discard_remainder=True):
 
 def examples_as_arrays(examples):
   # NOTE padding would be done here if we ever need it
-  return [feature for feature in
+  return [np.asarray(feature) for feature in
           equizip(*[example.render().features for example in examples])]
+
+class Factory(object):
+  @classmethod
+  def make(klass, key, *args, **kwargs):
+    for subklass in deepsubclasses(klass):
+      if getattr(subklass, "key", None) == key:
+        return subklass(*args, **kwargs)
+    else:
+      raise KeyError("unknown %s subclass key %s" % (klass, key))
+
+def deepsubclasses(klass):
+  for subklass in klass.__subclasses__():
+    yield subklass
+    for subsubklass in deepsubclasses(subklass):
+      yield subsubklass
+
+def random_choice(n, k=1, rng=np.random):
+  # np.random.choice handles this case really poorly, effectively
+  # explicitly allocating range(n), shuffling it and taking a slice.
+  # the logic here sucks too but it's orders of magnitude more
+  # efficient for large n.
+  assert n >= k
+  if k > n / 2:
+    # if k is close to n, the loop below will take longer to complete.
+    # but since n is similar to k, allocating range(n) will be okay.
+    return rng.choice(n, size=[k], replace=False)
+  indices = set()
+  while len(indices) < k:
+    indices.update(set(rng.randint(n, size=[k - len(indices)])))
+  return np.array(list(indices))

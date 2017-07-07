@@ -1,5 +1,6 @@
 import glob, os, audioop, wave, numpy as np
 import scipy.io.wavfile as wavfile
+import util
 from holster import H
 
 # examples consist of zero or more "features" (e.g. x and y), each of
@@ -7,17 +8,13 @@ from holster import H
 # as the time axis.
 class Example(object):
   def __init__(self, features=()):
-    self.features = features
+    if not all(feature.shape[0] == features[0].shape[0] for feature in features):
+      raise ValueError("all features must have the same length")
+    self._features = features
 
   @property
   def features(self):
     return self._features
-
-  @features.setter
-  def features(self, features):
-    if not all(feature.shape[0] == features[0].shape[0] for feature in features):
-      raise ValueError("all features must have the same length")
-    self._features = tuple(features)
 
   def __getitem__(self, index):
     return Example(features=tuple(feature[index] for feature in self.features))
@@ -38,11 +35,6 @@ class Example(object):
 # want to derive many sequences by randomly translating them (with
 # wraparound). OffsetExample allows us to represent the translation
 # implicitly, deferring the copy to reduce memory use.
-
-# FIXME FIXME FIXME FIXME FIXME
-# because this inherits Example, it exposes the unoffsetted features,
-# and they are used in several places.
-# FIXME FIXME FIXME FIXME FIXME
 class OffsetExample(Example):
   def __init__(self, features=(), offset=0):
     super(OffsetExample, self).__init__(features)
@@ -57,35 +49,37 @@ class OffsetExample(Example):
     index %= len(self)
     return super(OffsetExample, self).__getitem__(index)
 
+  # ensure raw features are rendered before being accessed
+  @property
+  def features(self):
+    return self.render().features
+
   # warning: below methods necessarily make copies, and return plain
   # Examples as a result.
   def map(self, fn):
     return self.render().map(fn)
 
-  def render(self, fn):
+  def render(self):
     return Example([np.roll(feature, -self.offset, axis=0)
-                    for feature in self.features])
+                    for feature in self._features])
 
-class Factory(object):
-  @classmethod
-  def make(klass, key, *args, **kwargs):
-    for subklass in deepsubclasses(klass):
-      if getattr(subklass, "key", None) == key:
-        return subklass(*args, **kwargs)
-    else:
-      raise KeyError("unknown %s subclass key %s" % (klass, key))
-
-class Dataset(Factory):
+class Dataset(util.Factory):
   def __init__(self, paths=None, directory=None, **kwargs):
     assert (paths is None) != (directory is None)
     if paths is None:
       paths = H((fold, glob.glob(os.path.join(directory, "%s/*%s" % (fold, self.filename_suffix))))
                 for fold in "train valid test".split())
-      if not any(fold_paths for fold_paths in paths):
+      if not any(paths.Values()):
         # no files found at all, probably not intended
         import pdb; pdb.set_trace()
     self.paths = paths
     self.examples = self.load(self.paths)
+
+  @classmethod
+  def make(klass, key, config):
+    return super().make(key,
+                        paths=config.Get("paths", None),
+                        directory=config.Get("directory", None))
 
   @property
   def data_dim(self):
@@ -135,21 +129,24 @@ class RestrictedBytes(Bytes):
   vocab = ""
 
   def __init__(self, *args, **kwargs):
+    self.bytemap = np.zeros((2**8,), dtype=np.uint8)
+    self.bytemap[self.vocab] = np.arange(len(self.vocab))
     super().__init__(*args, **kwargs)
-    self.bytemap = np.zeros((2**8,), dtype=np.int32)
-    self.bytemap[list(map(ord, self.vocab))] = np.arange(len(self.vocab))
 
   @property
   def data_dim(self):
     return len(self.vocab)
 
   def encode(self, bytes):
-    return Example([self.bytemap[list(map(ord, bytes))]])
+    return Example([self.bytemap[list(bytes)]])
 
   def decode(self, example):
     ords, = example.features
-    ords = np.argmax(self.bytemap[None, :] == ords[:, None], axis=1)
-    return "".join(map(chr, ords))
+    urr = self.bytemap[None, :] == ords[:, None]
+    # each category in the example should be in the bytemap
+    assert np.allclose(urr.sum(axis=1), 1)
+    ords = urr.argmax(axis=1)
+    return bytes(ords.astype(np.uint8))
 
   def load(self, paths):
     return H((fold, [self.encode(open(path, "rb").read())
@@ -163,35 +160,38 @@ class RestrictedBytes(Bytes):
 
 
 class Enwik8(RestrictedBytes):
+  key = "enwik8"
   filename_suffix = ".txt"
   vocab = list(
-    """\t\n !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"""
-    """\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f"""
-    """\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f"""
-    """\xa0\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xab\xac\xad\xae\xaf"""
-    """\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf"""
-    """\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xcb\xcc\xcd\xce\xcf"""
-    """\xd0\xd1\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xdb\xdc\xde"""
-    """\xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xef"""
-    """\xf0""")
+    b"""\t\n !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"""
+    b"""\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f"""
+    b"""\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f"""
+    b"""\xa0\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xab\xac\xad\xae\xaf"""
+    b"""\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf"""
+    b"""\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xcb\xcc\xcd\xce\xcf"""
+    b"""\xd0\xd1\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xdb\xdc\xde"""
+    b"""\xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xef"""
+    b"""\xf0""")
 
 
 class Linux(RestrictedBytes):
+  key = "linux"
   filename_suffix = ""
   vocab = list(
-    """\t\n\x0c\x14\x1b !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"""
-    """\x7f"""
-    """\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f"""
-    """\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f"""
-    """\xa0\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xab\xac\xad\xae\xaf"""
-    """\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf"""
-    """\xc0\xc1\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xcb\xcc\xcd\xce\xcf"""
-    """\xd0\xd1\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xdb\xdc\xdd\xde\xdf"""
-    """\xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef"""
-    """\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd\xfe\xff""")
+    b"""\t\n\x0c\x14\x1b !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"""
+    b"""\x7f"""
+    b"""\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f"""
+    b"""\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f"""
+    b"""\xa0\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xab\xac\xad\xae\xaf"""
+    b"""\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf"""
+    b"""\xc0\xc1\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xcb\xcc\xcd\xce\xcf"""
+    b"""\xd0\xd1\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xdb\xdc\xdd\xde\xdf"""
+    b"""\xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef"""
+    b"""\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd\xfe\xff""")
 
 
 class Wave(Dataset):
+  key = "wave"
   filename_suffix = ".wav"
 
   def __init__(self, paths, frequency, bit_depth, **kwargs):

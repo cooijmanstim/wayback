@@ -6,6 +6,7 @@ import torch
 import torch.nn.init as initializers
 import torch.nn.functional as func
 from torch.autograd import Variable
+import util
 
 class Parameters(object):
   def __init__(self):
@@ -105,10 +106,6 @@ def standardize(x, epsilon=1, dim=-1):
   return (x - mean.expand_as(x)) / (var.expand_as(x) + epsilon).sqrt()
 
 @namespaced
-def normalize(x, epsilon=1, dim=-1):
-  return scale(standardize(x), init=0.1)
-
-@namespaced
 def scale(x, dim=-1, init=1):
   g = P.get("g", [x.size()[dim]], init)
   return g.expand_as(x) * x
@@ -119,33 +116,17 @@ def bias(x, dim=-1, init=0):
   return b.expand_as(x) + x
 
 @namespaced
-def linear(*xs, dim=None):
-  assert dim is not None
+def linear(*xs, size=None):
+  assert size is not None
   x = torch.cat(xs, dim=-1)
-  w = P.get("w", [x.size()[-1], dim], initializers.orthogonal)
+  w = P.get("w", [x.size()[-1], size], initializers.orthogonal)
   return func.linear(x, w.t())
-
-@namespaced
-def weightnormed(*xs, dim=None, epsilon=1e-6):
-  assert dim is not None
-  x = torch.cat(xs, dim=-1)
-  w = P.get("w", [x.size()[-1], dim], initializers.orthogonal)
-  g = P.get("g", [dim], ft.partial(initializers.constant, val=0.1))
-  w = w * (g / (w.norm(dim=0) + epsilon)).unsqueeze(0).expand_as(w)
-  return func.linear(x, w.t())
-
-@namespaced
-def affine(*xs, dim=None, normalized=False):
-  assert dim is not None
-  if normalized:
-    return bias(sum(weightnormed(x, dim=dim, scope=str(i)) for i, x in enumerate(xs)))
-    #return bias(sum(normalize(linear(x, dim=dim, scope=str(i)), scope=str(i))
-    #                for i, x in enumerate(xs)))
-  else:
-    x = torch.cat(xs, dim=-1)
-    return bias(linear(x, dim=dim))
 
 def sample(p, dim=None, temperature=1, onehotted=False):
+  if isinstance(p, Variable):
+    # pytorch -__________________-
+    return Variable(sample(p.data, dim=dim, temperature=temperature, onehotted=onehotted), requires_grad=False)
+
   assert (p >= 0).prod() == 1 # just making sure we don't put log probabilities in here
 
   if dim is None:
@@ -158,26 +139,34 @@ def sample(p, dim=None, temperature=1, onehotted=False):
   cmf = p.cumsum(dim=dim)
   totalmasses = cmf[tuple(slice(None) if d != dim else slice(-1, None) for d in range(cmf.ndimension()))]
   u = np.random.random([p.size()[d] if d != dim else 1 for d in range(p.ndimension())]).astype(np.float32)
-  split = from_numpy(u).expand_as(cmf) * totalmasses.expand_as(cmf) < cmf
-  _, i = split.max(dim=dim)
-  i = i.squeeze(dim) # -_-
+  lt = from_numpy(u).expand_as(cmf) * totalmasses.expand_as(cmf) < cmf
+  # use argmax to find point where lt switches from being false to being true
+  return (onehot_argmax if onehotted else argmax)(lt, dim=dim)
 
-  return onehot(i, dim=dim, depth=p.size()[dim]) if onehot else i
+def onehot(i, size, dim=-1):
+  if isinstance(i, Variable):
+    # pytorch -__________________-
+    return Variable(onehot(i.data, size, dim=dim), requires_grad=False)
 
-def onehot(i, depth, dim=None):
-  if dim is None:
-    dim = i.ndimension()
-  size = list(i.size())
-  size.insert(dim, depth)
+  if dim < 0:
+    # interpret negative dim to count from the end of the onehotted array,
+    # which has one more axis
+    dim += i.ndimension() + 1
+
+  result_size = list(i.size())
+  result_size.insert(dim, size)
   i = i.unsqueeze(dim)
-  return torch.zeros(size).cuda().scatter_(dim, i, 1)
 
-def unhot(p, dim=None):
-  if dim is None:
-    dim = p.ndimension() - 1
-  _, i = p.max(dim=dim)
-  i = i.squeeze(dim=dim)
-  return i
+  return torch.zeros(result_size).cuda().scatter_(dim, i.long(), 1.)
+
+def unhot(p, dim=-1):
+  return argmax(p, dim=dim)
+
+def argmax(x, dim=-1):
+  return x.max(dim=dim)[1].squeeze(dim=dim)
+
+def onehot_argmax(x, dim=-1):
+  return onehot(argmax(x, dim=dim), size=x.size()[dim], dim=dim)
 
 def selu(x, alpha=1.6732632423543772848170429916717, beta=1.0507009873554804934193349852946):
   return beta * (func.relu(x) + alpha * func.elu(-func.relu(-x)))
@@ -194,5 +183,63 @@ def to_numpy(x):
 def segments(*args, **kwargs):
   for segment in util.segments(*args, **kwargs):
     segment, = util.examples_as_arrays(segment)
-    segment = Variable(pt.from_numpy(segment), requires_grad=False)
+    segment = Variable(from_numpy(segment), requires_grad=False)
     yield segment
+
+def get_activation(designator):
+  if callable(designator):
+    return designator
+  return dict(relu=func.relu,
+              tanh=func.tanh,
+              sigmoid=func.sigmoid,
+              elu=func.elu,
+              selu=selu,
+              logselu=logselu)[designator]
+
+affinities = dict()
+
+def affinity(key):
+  def decorator(fn):
+    affinities[key] = fn
+    return fn
+  return decorator
+
+def get_affinity(designator):
+  if callable(designator):
+    return designator
+  return affinities[designator]
+
+@affinity("plain")
+@namespaced
+def plain_affinity(*xs, size=None):
+  assert size is not None
+  x = torch.cat(xs, dim=-1)
+  return bias(linear(x, size=size))
+
+@affinity("weightnorm")
+@namespaced
+def weightnorm_affinity(*xs, size=None, epsilon=1e-6):
+  assert size is not None
+  zs = []
+  for i, x in enumerate(xs):
+    with P.namespace(str(i)):
+      w = P.get("w", [x.size()[-1], size], initializers.orthogonal)
+      g = P.get("g", [size], ft.partial(initializers.constant, val=0.1))
+      w = w * (g / (w.norm(dim=0) + epsilon)).unsqueeze(0).expand_as(w)
+      z = func.linear(x, w.t())
+      zs.append(z)
+  return bias(sum(zs))
+
+@affinity("layernorm")
+@namespaced
+def layernorm_affinity(*xs, size=None, epsilon=1e-6):
+  assert size is not None
+  ys = []
+  for i, x in enumerate(xs):
+    with P.namespace(str(i)):
+      z = standardize(linear(x, size=size), dim=-1, epsilon=epsilon)
+      y = scale(z, init=0.1)
+      ys.append(y)
+  return bias(sum(ys))
+
+affine = plain_affinity
