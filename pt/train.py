@@ -70,7 +70,7 @@ def train(config):
     def sample():
       print("sampling")
       length = 50
-      cond = config.data.examples.valid[:10]
+      cond = next(util.batches(config.data.examples.valid, batch_size=10))
       cond = next(util.segments(cond, length=sample_model.optimal_cutoff - length))
       pred = sample_model.sample(cond, length=length)
       for condex, predex in zip(cond, pred):

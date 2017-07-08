@@ -15,9 +15,8 @@ def compute_loss(e, y):
   return func.cross_entropy(e, targets)
 
 def emit_sample(h, size):
-  e = emit(h, size=size)
-  #return pt.onehot_argmax(e)
-  return pt.sample(func.softmax(e), onehotted=True)
+  p = func.softmax(emit(h, size=size))
+  return pt.sample(p, onehotted=True)
 
 def monitor_parameters(parameters):
   for parameter in parameters:

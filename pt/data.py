@@ -129,8 +129,8 @@ class RestrictedBytes(Bytes):
   vocab = ""
 
   def __init__(self, *args, **kwargs):
-    self.bytemap = np.zeros((2**8,), dtype=np.uint8)
-    self.bytemap[self.vocab] = np.arange(len(self.vocab))
+    self.byte_by_ord = dict((ord, byte) for ord, byte in enumerate(self.vocab))
+    self.ord_by_byte = dict((byte, ord) for ord, byte in enumerate(self.vocab))
     super().__init__(*args, **kwargs)
 
   @property
@@ -138,15 +138,12 @@ class RestrictedBytes(Bytes):
     return len(self.vocab)
 
   def encode(self, bytes):
-    return Example([self.bytemap[list(bytes)]])
+    ords = np.array([self.ord_by_byte[byte] for byte in bytes])
+    return Example([ords])
 
   def decode(self, example):
     ords, = example.features
-    urr = self.bytemap[None, :] == ords[:, None]
-    # each category in the example should be in the bytemap
-    assert np.allclose(urr.sum(axis=1), 1)
-    ords = urr.argmax(axis=1)
-    return bytes(ords.astype(np.uint8))
+    return bytes(self.byte_by_ord[ord] for ord in ords)
 
   def load(self, paths):
     return H((fold, [self.encode(open(path, "rb").read())

@@ -122,26 +122,45 @@ def linear(*xs, size=None):
   w = P.get("w", [x.size()[-1], size], initializers.orthogonal)
   return func.linear(x, w.t())
 
-def sample(p, dim=None, temperature=1, onehotted=False):
+def sample(p, dim=-1, temperature=1, onehotted=False):
   if isinstance(p, Variable):
     # pytorch -__________________-
     return Variable(sample(p.data, dim=dim, temperature=temperature, onehotted=onehotted), requires_grad=False)
 
   assert (p >= 0).prod() == 1 # just making sure we don't put log probabilities in here
 
-  if dim is None:
-    dim = p.ndimension() - 1
-
+  if temperature == 0:
+    return argmax(p, dim=dim, onehotted=onehotted)
   if temperature != 1:
     # this is slow
     p = p ** (1. / temperature)
 
   cmf = p.cumsum(dim=dim)
-  totalmasses = cmf[tuple(slice(None) if d != dim else slice(-1, None) for d in range(cmf.ndimension()))]
-  u = np.random.random([p.size()[d] if d != dim else 1 for d in range(p.ndimension())]).astype(np.float32)
-  lt = from_numpy(u).expand_as(cmf) * totalmasses.expand_as(cmf) < cmf
-  # use argmax to find point where lt switches from being false to being true
-  return (onehot_argmax if onehotted else argmax)(lt, dim=dim)
+
+  # find total masses by slicing down to the last cmf element along dimension dim
+  totals_index = [slice(None)] * cmf.ndimension()
+  totals_index[dim] = slice(-1, None)
+  totals = cmf[tuple(totals_index)]
+
+  # draw a uniform random number for each variable to be sampled; scale by total
+  # mass to take care of normalization
+  u = (from_numpy(np.random.random(tuple(totals.size())).astype(np.float32))
+       * totals)
+
+  # find the first point at which argmax(u < cmf) to find the inverse of the cmf
+  lt = u.expand_as(cmf) < cmf
+  assert (to_numpy(lt).sum(axis=dim) > 0).all()
+
+  # max is silently broken, topk seems to work :-/
+  x = torch.topk(lt.float(), k=1, dim=dim)[1].squeeze(dim)
+  if onehotted:
+    x = onehot(x, size=p.size()[dim], dim=dim)
+    if x.ndimension() > p.ndimension():
+      # pytorch's lack of 0d array strikes again :((((((
+      x = x.squeeze()
+    assert np.allclose(to_numpy(x.sum(dim=dim)), 1)
+
+  return x
 
 def onehot(i, size, dim=-1):
   if isinstance(i, Variable):
@@ -162,11 +181,19 @@ def onehot(i, size, dim=-1):
 def unhot(p, dim=-1):
   return argmax(p, dim=dim)
 
-def argmax(x, dim=-1):
-  return x.max(dim=dim)[1].squeeze(dim=dim)
-
-def onehot_argmax(x, dim=-1):
-  return onehot(argmax(x, dim=dim), size=x.size()[dim], dim=dim)
+def argmax(x, dim=-1, onehotted=False):
+  i = x.max(dim=dim)[1].squeeze(dim=dim)
+  if onehotted:
+    p = onehot(i, size=x.size()[dim], dim=dim)
+    if x.ndimension() == 1:
+      # pytorch doesn't have 0d arrays, so the max over a 1d array is a 1d array of size 1
+      # -_____________________________________________________________________________-
+      # we can't get rid of it until we have a 2d array again, which p is here
+      assert p.ndimension() == 2
+      p = p.squeeze()
+    assert p.size() == x.size()
+    return p
+  return i
 
 def selu(x, alpha=1.6732632423543772848170429916717, beta=1.0507009873554804934193349852946):
   return beta * (func.relu(x) + alpha * func.elu(-func.relu(-x)))
@@ -178,7 +205,9 @@ def from_numpy(x):
   return torch.from_numpy(x).cuda()
 
 def to_numpy(x):
-  return x.cpu().data.numpy()
+  if isinstance(x, Variable):
+    x = x.data
+  return x.cpu().numpy()
 
 def segments(*args, **kwargs):
   for segment in util.segments(*args, **kwargs):
