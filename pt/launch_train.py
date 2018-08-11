@@ -7,12 +7,12 @@ hp = H()
 
 hp["model.kind"] = "wayback"
 hp.model.strides = [1, 8, 64]
-hp.model.cutoffs = [64] * len(hp.model.strides)
-hp.model.layers = [H(kind="lstm", size=100, activation="logselu", affinity="weightnorm")
+hp.model.cutoffs = [16] * len(hp.model.strides)
+hp.model.layers = [H(kind="rnn", size=200, activation="logselu", affinity="condlayernorm")
                    for _ in hp.model.strides]
 hp.model.vskip = 1
 
-hp.batch_size = 10
+hp.batch_size = 5
 
 hp["data.kind"] = "enwik8"
 hp.data.directory = "/data/lisatmp4/cooijmat/datasets/enwik8"

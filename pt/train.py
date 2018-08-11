@@ -1,4 +1,4 @@
-import os, sys, datetime, argparse, yaml
+import os, sys, datetime, argparse, yaml, hashlib
 import contextlib
 from collections import OrderedDict as ordict
 import itertools as it
@@ -7,16 +7,15 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-import pt, models, util
+import pt, models, util, data
 from holster import H
-import data
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--hp")
 parser.add_argument("--hpfile")
 parser.add_argument("--basename")
 parser.add_argument("--num_epochs", type=int)
-parser.add_argument("--resume", type=util.bouillon)
+parser.add_argument("--resume", type=util.bouillon, default=True)
 parser.add_argument("--runs-dir", default=os.getcwd())
 
 def main():
@@ -34,7 +33,10 @@ def main():
 
   print(config.hp)
   config.label = util.make_label(config)
-  run_dir = "%s_%s" % (datetime.datetime.now().isoformat(), config.label)
+  print("hashing", repr(config.hp))
+  identifier = hashlib.sha1(repr(config.hp).encode("utf-8")).hexdigest()
+  # TODO store everything in a database so we can be free
+  run_dir = identifier
   run_dir = run_dir[:255] # >:-(((((((((((((((((((((((((((((((((((((((((
   config.run_dir = os.path.join(config.runs_dir, run_dir)
 

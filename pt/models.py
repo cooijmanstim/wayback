@@ -123,11 +123,11 @@ class RNN(Model):
     self.affinity = pt.get_affinity(self.hp.affinity)
 
   def initialize(self, batch_size, inference=False):
-    self.h = Variable(torch.zeros(batch_size, self.size).cuda(), volatile=inference)
+    self.h = Variable(torch.zeros(batch_size, self.hp.size).cuda(), volatile=inference)
 
   @pt.namespaced
   def transition(self, *xs):
-    self.h = self.activation(self.affinity(*xs, self.h, size=self.size, normalized=self.normalized, scope="rnn"))
+    self.h = self.activation(self.affinity(*xs, self.h, size=self.hp.size, scope="rnn"))
     return self.output
 
   def detach(self):

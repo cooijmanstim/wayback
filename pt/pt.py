@@ -147,8 +147,8 @@ def sample(p, dim=-1, temperature=1, onehotted=False):
   u = (from_numpy(np.random.random(tuple(totals.size())).astype(np.float32))
        * totals)
 
-  # find the first point at which argmax(u < cmf) to find the inverse of the cmf
-  lt = u.expand_as(cmf) < cmf
+  # find the first point at which u <= cmf to find the inverse of the cmf
+  lt = u.expand_as(cmf) <= cmf
   assert (to_numpy(lt).sum(axis=dim) > 0).all()
 
   # max is silently broken, topk seems to work :-/
@@ -270,5 +270,22 @@ def layernorm_affinity(*xs, size=None, epsilon=1e-6):
       y = scale(z, init=0.1)
       ys.append(y)
   return bias(sum(ys))
+
+@affinity("condlayernorm")
+@namespaced
+def condlayernorm_affinity(*xs, size=None, epsilon=1e-6):
+  assert size is not None
+  zs = []
+  ys = []
+  for i, x in enumerate(xs):
+    with P.namespace(str(i)):
+      z = standardize(linear(x, size=size), dim=-1, epsilon=epsilon)
+      zs.append(z)
+  for i, z in enumerate(zs):
+    with P.namespace(str(i)):
+      scale = plain_affinity(*zs, size=size, scope="scale")
+      y = z * scale
+      ys.append(y)
+  return sum(ys) + plain_affinity(*zs, size=size, scope="bias")
 
 affine = plain_affinity
